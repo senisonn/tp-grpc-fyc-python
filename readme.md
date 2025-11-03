@@ -1,57 +1,78 @@
-# TP gRPC Python - Service de Logs en Streaming 📡
+# TP gRPC Python - Sécurisation avec Authentification 🔒
 
 ## Objectif
 
-Ce TP vous permet de découvrir le **Server Streaming** avec gRPC. Vous allez implémenter un service de logs en temps réel, où le serveur envoie continuellement des logs au client, comme un système de monitoring.
+Ce TP vous apprend à **sécuriser un service gRPC** avec un système d'authentification par **JWT (JSON Web Token)**. Vous allez implémenter un service utilisateur où certaines opérations nécessitent une authentification valide.
 
-## Qu'est-ce que le Server Streaming ?
+## Pourquoi sécuriser un service gRPC ?
 
-Contrairement au **Unary RPC** (1 requête → 1 réponse), le **Server Streaming** fonctionne ainsi :
-- Le client envoie **1 requête**
-- Le serveur renvoie **un flux continu de réponses**
+Par défaut, **tout le monde** peut appeler vos services gRPC. C'est comme laisser la porte de votre maison ouverte ! 🚪
 
-**Cas d'usage** : Logs temps réel, notifications push, flux d'actualités, monitoring de système
+### Problèmes sans authentification :
+- ❌ N'importe qui peut accéder aux données sensibles
+- ❌ Pas de contrôle sur qui fait quoi
+- ❌ Impossible de tracer les actions par utilisateur
+- ❌ Vulnérable aux attaques
 
-### Les 3 Types de Streaming gRPC
+### Avec authentification :
+- ✅ Seuls les utilisateurs authentifiés peuvent accéder aux données
+- ✅ Chaque requête est liée à un utilisateur identifié
+- ✅ Logs et audit possibles
+- ✅ Gestion fine des permissions
 
-#### 1. Server Streaming (ce TP)
+## Concepts Clés
+
+### 1. **JWT (JSON Web Token)**
+Un token JWT est une chaîne encodée qui contient :
+- **Header** : Type de token et algorithme de signature
+- **Payload** : Données (user_id, username, expiration)
+- **Signature** : Garantit que le token n'a pas été modifié
+
+Exemple de JWT :
 ```
-Client ──[1 requête]──> Serveur
-Client <─[réponse 1]─── Serveur
-Client <─[réponse 2]─── Serveur
-Client <─[réponse 3]─── Serveur
+eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoxLCJ1c2VybmFtZSI6ImFsaWNlIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c
 ```
 
-#### 2. Client Streaming
-```
-Client ──[requête 1]──> Serveur
-Client ──[requête 2]──> Serveur
-Client <─[1 réponse]─── Serveur
+### 2. **Metadata dans gRPC**
+Les metadata sont comme les **headers HTTP** :
+```python
+# Client envoie le token
+metadata = [('authorization', f'Bearer {token}')]
+response = stub.GetProfile(request, metadata=metadata)
+
+# Serveur récupère le token
+token = dict(context.invocation_metadata()).get('authorization')
 ```
 
-#### 3. Bidirectional Streaming
+### 3. **Interceptors gRPC**
+Un interceptor est un **middleware** qui intercepte toutes les requêtes :
+```python
+Requête client
+    ↓
+[Interceptor] ← Vérifie le token
+    ↓
+Service métier
 ```
-Client ──[requête 1]──> Serveur
-Client <─[réponse 1]─── Serveur
-Client ──[requête 2]──> Serveur
-Client <─[réponse 2]─── Serveur
-```
+
+Avantage : On n'a pas besoin de vérifier le token dans chaque méthode !
 
 ## Prérequis
 
 - Python 3.7+
 - Bibliothèques nécessaires :
   ```bash
-  pip install grpcio grpcio-tools
+  pip install grpcio grpcio-tools pyjwt
+  pip install --force-reinstall cffi cryptography
   ```
 
 ## Architecture du Projet
 
 ```
-logs_streaming/
-├── logs.proto          # Définition du protocole
-├── server.py           # Serveur de logs
-├── client.py           # Client qui reçoit les logs
+secure_service/
+├── user.proto          # Définition du service utilisateur
+├── server.py           # Serveur avec authentification
+├── client.py           # Client qui s'authentifie
+├── auth_interceptor.py # Interceptor pour vérifier les tokens
 └── README.md
 ```
 
@@ -61,178 +82,435 @@ logs_streaming/
 
 ### Étape 1 : Définir le fichier Protocol Buffers
 
-Créez un fichier `logs.proto` avec la structure suivante :
+Créez un fichier `user.proto` avec les messages et services suivants :
 
-#### **Message `LogRequest`** (requête du client)
-Le client envoie cette requête pour demander des logs :
-- `level` (string) : Niveau de log demandé ("INFO", "WARNING", "ERROR")
-- `duration` (int32) : Durée en secondes pendant laquelle recevoir les logs
+#### **Messages**
 
-#### **Message `LogEntry`** (chaque log envoyé par le serveur)
-Chaque log contient :
-- `timestamp` (string) : Date et heure du log
-- `level` (string) : Niveau du log
-- `message` (string) : Contenu du log
-- `service` (string) : Nom du service qui a généré le log
+1. **LoginRequest** : Pour se connecter
+   - `username` (string)
+   - `password` (string)
 
-#### **Service `LogService`**
-Définissez une méthode RPC :
+2. **LoginResponse** : Retour de la connexion
+   - `token` (string) : JWT token
+   - `user_id` (int32)
+   - `message` (string) : Message de succès/erreur
+
+3. **User** : Représente un utilisateur
+   - `id` (int32)
+   - `username` (string)
+   - `email` (string)
+   - `full_name` (string)
+
+4. **GetProfileRequest** : Pour récupérer un profil
+   - `user_id` (int32)
+
+5. **GetProfileResponse** : Retour du profil
+   - `user` (User)
+   - `error` (string)
+
+6. **UpdateProfileRequest** : Pour mettre à jour un profil
+   - `user_id` (int32)
+   - `email` (string)
+   - `full_name` (string)
+
+7. **UpdateProfileResponse** : Retour de la mise à jour
+   - `success` (bool)
+   - `message` (string)
+
+#### **Service UserService**
+
+Définissez 3 méthodes RPC :
 ```protobuf
-rpc StreamLogs(LogRequest) returns (stream LogEntry);
+service UserService {
+    rpc Login(LoginRequest) returns (LoginResponse);           // Pas d'auth nécessaire
+    rpc GetProfile(GetProfileRequest) returns (GetProfileResponse);  // Auth requise
+    rpc UpdateProfile(UpdateProfileRequest) returns (UpdateProfileResponse);  // Auth requise
+}
 ```
 
-⚠️ **Point clé** : Le mot-clé `stream` devant `LogEntry` indique que le serveur va envoyer **plusieurs** messages, pas un seul.
-
-**Indice pour le fichier complet** :
+**Squelette** :
 ```protobuf
 syntax = "proto3";
 
-message LogRequest {
+message LoginRequest {
     // À compléter
 }
 
-message LogEntry {
+message LoginResponse {
     // À compléter
 }
 
-service LogService {
+message User {
+    // À compléter
+}
+
+// Autres messages...
+
+service UserService {
     // À compléter
 }
 ```
 
 ### Étape 2 : Générer les fichiers Python
 
-Compilez le fichier `.proto` :
-
 ```bash
-python -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. logs.proto
+python -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. user.proto
 ```
-
-Cela génère :
-- `logs_pb2.py` : Classes de messages
-- `logs_pb2_grpc.py` : Classes de services
 
 ---
 
-### Étape 3 : Implémenter le Serveur
+### Étape 3 : Créer l'Interceptor d'Authentification
 
-Dans `server.py`, vous devez créer :
+Créez un fichier `auth_interceptor.py` qui vérifie les tokens JWT.
 
-#### **Classe `LogServiceServicer`**
+#### **Spécifications**
 
-Héritez de `logs_pb2_grpc.LogServiceServicer` et implémentez la méthode `StreamLogs`.
+1. **Créer une classe `AuthInterceptor`** qui hérite de `grpc.ServerInterceptor`
 
-**Spécifications** :
+2. **Définir une clé secrète** pour signer les JWT :
+   ```python
+   SECRET_KEY = "votre_cle_secrete_super_secure_123"
+   ```
 
-1. **Récupérer les paramètres** de la requête (level, duration)
+3. **Lister les méthodes publiques** (qui ne nécessitent pas d'auth) :
+   ```python
+   PUBLIC_METHODS = ['/UserService/Login']
+   ```
 
-2. **Créer des listes de messages** pour chaque niveau de log :
-   - INFO : "Connexion utilisateur réussie", "Requête API traitée", etc.
-   - WARNING : "Utilisation mémoire élevée", "Temps de réponse lent", etc.
-   - ERROR : "Erreur de connexion DB", "Timeout service externe", etc.
-
-3. **Créer une liste de services** : ["api-gateway", "auth-service", "database", "cache-service", "worker"]
-
-4. **Générer des logs en boucle** :
-   - Calculer le timestamp de fin : `end_time = time.time() + request.duration`
-   - Tant que `time.time() < end_time` :
-     - Choisir un message aléatoire (utilisez `random.choice()`)
-     - Créer un objet `LogEntry` avec timestamp, level, message, service
-     - **Utiliser `yield` pour envoyer le log** (pas `return` !)
-     - Attendre 1 seconde avec `time.sleep(1)`
+4. **Implémenter la méthode `intercept_service`** qui :
+   - Récupère le nom de la méthode appelée
+   - Si la méthode est publique → laisse passer
+   - Sinon → récupère le token dans les metadata
+   - Vérifie et décode le token JWT
+   - Si valide → ajoute les infos utilisateur au context et laisse passer
+   - Si invalide → retourne une erreur `PERMISSION_DENIED`
 
 **Imports nécessaires** :
 ```python
 import grpc
-from concurrent import futures
-import logs_pb2
-import logs_pb2_grpc
-import time
-from datetime import datetime
-import random
+import jwt
+from datetime import datetime, timedelta
 ```
 
-**Squelette de code** :
+**Squelette** :
 ```python
-class LogServiceServicer(logs_pb2_grpc.LogServiceServicer):
-    def StreamLogs(self, request, context):
-        # Messages d'exemple
-        messages = {
-            "INFO": [...],
-            "WARNING": [...],
-            "ERROR": [...]
-        }
-        
-        services = [...]
-        
-        end_time = time.time() + request.duration
-        
-        while time.time() < end_time:
-            # Générer un log
-            log = logs_pb2.LogEntry(
-                timestamp=...,
-                level=...,
-                message=...,
-                service=...
-            )
-            
-            yield log  # ⚠️ CRUCIAL : yield, pas return !
-            time.sleep(1)
+SECRET_KEY = "votre_cle_secrete"
+PUBLIC_METHODS = ['/UserService/Login']
 
-def serve():
-    server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
-    logs_pb2_grpc.add_LogServiceServicer_to_server(LogServiceServicer(), server)
-    server.add_insecure_port('[::]:50052')
-    server.start()
-    print("🚀 Serveur de logs démarré sur le port 50052")
-    server.wait_for_termination()
+class AuthInterceptor(grpc.ServerInterceptor):
+    def intercept_service(self, continuation, handler_call_details):
+        method_name = handler_call_details.method
+        
+        # Si méthode publique, laisser passer
+        if method_name in PUBLIC_METHODS:
+            return continuation(handler_call_details)
+        
+        # Récupérer le token
+        metadata = dict(handler_call_details.invocation_metadata)
+        token = metadata.get('authorization', '')
+        
+        if not token.startswith('Bearer '):
+            return self._deny_access()
+        
+        token = token[7:]  # Enlever "Bearer "
+        
+        try:
+            # Vérifier et décoder le token
+            payload = jwt.decode(token, SECRET_KEY, algorithms=['HS256'])
+            # TODO: Ajouter les infos au context si besoin
+            return continuation(handler_call_details)
+        except jwt.ExpiredSignatureError:
+            return self._deny_access("Token expiré")
+        except jwt.InvalidTokenError:
+            return self._deny_access("Token invalide")
+    
+    def _deny_access(self, message="Non autorisé"):
+        def abort(ignored_request, context):
+            context.abort(grpc.StatusCode.PERMISSION_DENIED, message)
+        return grpc.unary_unary_rpc_method_handler(abort)
+
+def generate_token(user_id, username):
+    """Génère un JWT token pour un utilisateur"""
+    payload = {
+        'user_id': user_id,
+        'username': username,
+        'exp': datetime.utcnow() + timedelta(hours=1)  # Expire dans 1h
+    }
+    return jwt.encode(payload, SECRET_KEY, algorithm='HS256')
+
+def verify_token(token):
+    """Vérifie un token JWT"""
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=['HS256'])
+        return payload
+    except:
+        return None
 ```
 
 ---
 
-### Étape 4 : Implémenter le Client
+### Étape 4 : Implémenter le Serveur
 
-Dans `client.py`, créez une fonction `stream_logs(level, duration)` :
+Dans `server.py`, créez le service utilisateur sécurisé.
 
-**Spécifications** :
+#### **Spécifications**
 
-1. **Se connecter** au serveur sur `localhost:50052`
-2. **Créer un stub** du service
-3. **Créer et envoyer la requête** avec le niveau et la durée
-4. **Itérer sur le flux de réponses** :
-   - Utilisez une boucle `for log in stub.StreamLogs(request):`
-   - Affichez chaque log au format : `[timestamp] [level] [service] message`
-5. **Gérer les erreurs** avec un bloc `try/except`
+1. **Base de données simulée** (dictionnaire Python) :
+   ```python
+   USERS_DB = {
+       "alice": {"id": 1, "password": "password123", "email": "alice@example.com", "full_name": "Alice Dupont"},
+       "bob": {"id": 2, "password": "secret456", "email": "bob@example.com", "full_name": "Bob Martin"}
+   }
+   ```
 
-**Squelette de code** :
+2. **Classe `UserServiceServicer`** avec 3 méthodes :
+
+   **a) `Login(request, context)`** :
+   - Vérifie username/password
+   - Si correct → génère un token JWT et retourne `LoginResponse`
+   - Si incorrect → retourne une erreur
+
+   **b) `GetProfile(request, context)`** :
+   - **Protégée par l'interceptor** (token vérifié automatiquement)
+   - Récupère les infos de l'utilisateur depuis la DB
+   - Retourne `GetProfileResponse`
+
+   **c) `UpdateProfile(request, context)`** :
+   - **Protégée par l'interceptor**
+   - Met à jour email et full_name dans la DB
+   - Retourne `UpdateProfileResponse`
+
+3. **Fonction `serve()`** :
+   - Crée le serveur avec l'interceptor
+   - Ajoute le service
+   - Démarre sur le port 50053
+
+**Squelette** :
 ```python
 import grpc
-import logs_pb2
-import logs_pb2_grpc
+from concurrent import futures
+import user_pb2
+import user_pb2_grpc
+from auth_interceptor import AuthInterceptor, generate_token
 
-def stream_logs(level, duration):
-    with grpc.insecure_channel('localhost:50052') as channel:
-        stub = logs_pb2_grpc.LogServiceStub(channel)
+USERS_DB = {
+    "alice": {"id": 1, "password": "password123", "email": "alice@example.com", "full_name": "Alice Dupont"},
+    "bob": {"id": 2, "password": "secret456", "email": "bob@example.com", "full_name": "Bob Martin"}
+}
+
+class UserServiceServicer(user_pb2_grpc.UserServiceServicer):
+    def Login(self, request, context):
+        # Vérifier les credentials
+        user = USERS_DB.get(request.username)
         
-        request = logs_pb2.LogRequest(level=level, duration=duration)
+        if not user or user['password'] != request.password:
+            return user_pb2.LoginResponse(
+                token="",
+                user_id=0,
+                message="Identifiants incorrects"
+            )
         
-        print(f"📡 Streaming des logs de niveau {level} pendant {duration} secondes...\n")
+        # Générer le token
+        token = generate_token(user['id'], request.username)
         
-        try:
-            for log in stub.StreamLogs(request):
-                # Afficher le log
-                print(f"[{log.timestamp}] [{log.level}] [{log.service}] {log.message}")
-        except grpc.RpcError as e:
-            print(f"❌ Erreur gRPC: {e}")
+        return user_pb2.LoginResponse(
+            token=token,
+            user_id=user['id'],
+            message="Connexion réussie"
+        )
+    
+    def GetProfile(self, request, context):
+        # Cette méthode est protégée par l'interceptor
+        # Le token a déjà été vérifié !
+        
+        # Trouver l'utilisateur
+        user = None
+        for username, data in USERS_DB.items():
+            if data['id'] == request.user_id:
+                user = data
+                break
+        
+        if not user:
+            return user_pb2.GetProfileResponse(error="Utilisateur non trouvé")
+        
+        user_obj = user_pb2.User(
+            id=user['id'],
+            username=username,
+            email=user['email'],
+            full_name=user['full_name']
+        )
+        
+        return user_pb2.GetProfileResponse(user=user_obj, error="")
+    
+    def UpdateProfile(self, request, context):
+        # Protégée par l'interceptor
+        
+        # Trouver et mettre à jour l'utilisateur
+        for username, data in USERS_DB.items():
+            if data['id'] == request.user_id:
+                data['email'] = request.email
+                data['full_name'] = request.full_name
+                return user_pb2.UpdateProfileResponse(
+                    success=True,
+                    message="Profil mis à jour avec succès"
+                )
+        
+        return user_pb2.UpdateProfileResponse(
+            success=False,
+            message="Utilisateur non trouvé"
+        )
+
+def serve():
+    # Créer le serveur AVEC l'interceptor
+    interceptors = [AuthInterceptor()]
+    server = grpc.server(
+        futures.ThreadPoolExecutor(max_workers=10),
+        interceptors=interceptors  # ← CRUCIAL !
+    )
+    
+    user_pb2_grpc.add_UserServiceServicer_to_server(UserServiceServicer(), server)
+    server.add_insecure_port('[::]:50053')
+    server.start()
+    print("🔒 Serveur sécurisé démarré sur le port 50053")
+    server.wait_for_termination()
 
 if __name__ == '__main__':
-    stream_logs("INFO", 10)
+    serve()
 ```
 
-**Bonus** : Créez un menu interactif permettant de choisir :
-- Le niveau de log (INFO/WARNING/ERROR)
-- La durée du streaming
-- Plusieurs scénarios pré-configurés
+---
+
+### Étape 5 : Implémenter le Client
+
+Dans `client.py`, créez un client qui s'authentifie avant d'accéder aux ressources protégées.
+
+#### **Spécifications**
+
+1. **Fonction `login(stub, username, password)`** :
+   - Appelle la méthode Login
+   - Récupère et retourne le token
+
+2. **Fonction `get_profile(stub, user_id, token)`** :
+   - Appelle GetProfile en **passant le token dans les metadata**
+   - Affiche le profil
+
+3. **Fonction `update_profile(stub, user_id, email, full_name, token)`** :
+   - Appelle UpdateProfile avec le token
+   - Affiche le résultat
+
+4. **Fonction `main()`** :
+   - Se connecte en tant qu'Alice
+   - Récupère son profil
+   - Met à jour son profil
+   - Teste avec un token invalide
+
+**Squelette** :
+```python
+import grpc
+import user_pb2
+import user_pb2_grpc
+
+def login(stub, username, password):
+    """Se connecter et obtenir un token"""
+    request = user_pb2.LoginRequest(username=username, password=password)
+    response = stub.Login(request)
+    
+    if response.token:
+        print(f"✅ Connexion réussie ! Token reçu.")
+        print(f"   User ID: {response.user_id}")
+        return response.token
+    else:
+        print(f"❌ {response.message}")
+        return None
+
+def get_profile(stub, user_id, token):
+    """Récupérer le profil (nécessite authentification)"""
+    request = user_pb2.GetProfileRequest(user_id=user_id)
+    
+    # CRUCIAL : Passer le token dans les metadata
+    metadata = [('authorization', f'Bearer {token}')]
+    
+    try:
+        response = stub.GetProfile(request, metadata=metadata)
+        
+        if response.error:
+            print(f"❌ Erreur: {response.error}")
+        else:
+            print(f"👤 Profil récupéré:")
+            print(f"   Username: {response.user.username}")
+            print(f"   Email: {response.user.email}")
+            print(f"   Nom: {response.user.full_name}")
+    except grpc.RpcError as e:
+        print(f"❌ Erreur gRPC: {e.code()} - {e.details()}")
+
+def update_profile(stub, user_id, email, full_name, token):
+    """Mettre à jour le profil (nécessite authentification)"""
+    request = user_pb2.UpdateProfileRequest(
+        user_id=user_id,
+        email=email,
+        full_name=full_name
+    )
+    
+    metadata = [('authorization', f'Bearer {token}')]
+    
+    try:
+        response = stub.UpdateProfile(request, metadata=metadata)
+        
+        if response.success:
+            print(f"✅ {response.message}")
+        else:
+            print(f"❌ {response.message}")
+    except grpc.RpcError as e:
+        print(f"❌ Erreur gRPC: {e.code()} - {e.details()}")
+
+def main():
+    with grpc.insecure_channel('localhost:50053') as channel:
+        stub = user_pb2_grpc.UserServiceStub(channel)
+        
+        print("=" * 60)
+        print("🔒 CLIENT SÉCURISÉ - TEST D'AUTHENTIFICATION")
+        print("=" * 60)
+        
+        # Test 1 : Login avec bons identifiants
+        print("\n[TEST 1] Connexion avec alice...")
+        token = login(stub, "alice", "password123")
+        
+        if token:
+            # Test 2 : Récupérer le profil avec token valide
+            print("\n[TEST 2] Récupération du profil (avec token)...")
+            get_profile(stub, 1, token)
+            
+            # Test 3 : Mettre à jour le profil
+            print("\n[TEST 3] Mise à jour du profil...")
+            update_profile(stub, 1, "alice.dupont@example.com", "Alice DUPONT", token)
+            
+            # Test 4 : Re-vérifier le profil
+            print("\n[TEST 4] Vérification après mise à jour...")
+            get_profile(stub, 1, token)
+        
+        # Test 5 : Tenter d'accéder sans token
+        print("\n[TEST 5] Tentative sans token (doit échouer)...")
+        try:
+            get_profile(stub, 1, "")
+        except:
+            pass
+        
+        # Test 6 : Token invalide
+        print("\n[TEST 6] Token invalide (doit échouer)...")
+        try:
+            get_profile(stub, 1, "fake_token_123")
+        except:
+            pass
+        
+        # Test 7 : Mauvais identifiants
+        print("\n[TEST 7] Mauvais mot de passe...")
+        login(stub, "alice", "wrong_password")
+        
+        print("\n" + "=" * 60)
+
+if __name__ == '__main__':
+    main()
+```
 
 ---
 
@@ -241,7 +519,7 @@ if __name__ == '__main__':
 ### 1. Générer les fichiers gRPC
 
 ```bash
-python -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. logs.proto
+python -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. user.proto
 ```
 
 ### 2. Lancer le serveur
@@ -250,13 +528,12 @@ python -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. logs.proto
 python server.py
 ```
 
-Sortie attendue :
+Sortie :
 ```
-🚀 Serveur de logs démarré sur le port 50052
-En attente de connexions...
+🔒 Serveur sécurisé démarré sur le port 50053
 ```
 
-### 3. Lancer le client (dans un autre terminal)
+### 3. Lancer le client
 
 ```bash
 python client.py
@@ -264,103 +541,214 @@ python client.py
 
 Sortie attendue :
 ```
-📡 Streaming des logs de niveau INFO pendant 10 secondes...
+============================================================
+🔒 CLIENT SÉCURISÉ - TEST D'AUTHENTIFICATION
+============================================================
 
-[2025-11-03 14:32:01] [INFO] [api-gateway] Connexion utilisateur réussie
-[2025-11-03 14:32:02] [INFO] [cache-service] Cache mis à jour
-[2025-11-03 14:32:03] [INFO] [database] Requête API traitée
-...
-✅ Streaming terminé après 10 secondes
+[TEST 1] Connexion avec alice...
+✅ Connexion réussie ! Token reçu.
+   User ID: 1
+
+[TEST 2] Récupération du profil (avec token)...
+👤 Profil récupéré:
+   Username: alice
+   Email: alice@example.com
+   Nom: Alice Dupont
+
+[TEST 3] Mise à jour du profil...
+✅ Profil mis à jour avec succès
+
+[TEST 4] Vérification après mise à jour...
+👤 Profil récupéré:
+   Username: alice
+   Email: alice.dupont@example.com
+   Nom: Alice DUPONT
+
+[TEST 5] Tentative sans token (doit échouer)...
+❌ Erreur gRPC: StatusCode.PERMISSION_DENIED - Non autorisé
+
+[TEST 6] Token invalide (doit échouer)...
+❌ Erreur gRPC: StatusCode.PERMISSION_DENIED - Token invalide
+
+[TEST 7] Mauvais mot de passe...
+❌ Identifiants incorrects
 ```
 
 ---
 
-## 🔑 Concepts Clés à Retenir
+## 🔑 Concepts Clés Expliqués
 
-### 1. Le mot-clé `stream` dans le .proto
-```protobuf
-rpc StreamLogs(LogRequest) returns (stream LogEntry);
+### 1. **Flow d'authentification complet**
+
 ```
-- Sans `stream` : le serveur renvoie **1 seul** LogEntry
-- Avec `stream` : le serveur renvoie **plusieurs** LogEntry
+┌────────┐                          ┌────────┐
+│ Client │                          │ Server │
+└───┬────┘                          └───┬────┘
+    │                                   │
+    │  Login(username, password)        │
+    │──────────────────────────────────>│
+    │                                   │ Vérif credentials
+    │                                   │ Génère JWT
+    │  LoginResponse(token)             │
+    │<──────────────────────────────────│
+    │                                   │
+    │  GetProfile(user_id)              │
+    │  + metadata: "Bearer {token}"     │
+    │──────────────────────────────────>│
+    │                                   │ [Interceptor]
+    │                                   │ Vérifie token
+    │                                   │ Décode JWT
+    │                                   │ ✓ OK
+    │  GetProfileResponse(user)         │
+    │<──────────────────────────────────│
+    │                                   │
+```
 
-### 2. `yield` vs `return` dans le serveur
+### 2. **Pourquoi utiliser un Interceptor ?**
+
+**❌ Sans interceptor** :
 ```python
-# ❌ FAUX - enverrait tous les logs d'un coup à la fin
-def StreamLogs(self, request, context):
-    logs = []
-    for i in range(10):
-        logs.append(log)
-    return logs
+def GetProfile(self, request, context):
+    # Dupliquer ce code dans CHAQUE méthode
+    token = dict(context.invocation_metadata()).get('authorization')
+    if not verify_token(token):
+        context.abort(grpc.StatusCode.PERMISSION_DENIED, "Non autorisé")
+    # Logique métier...
 
-# ✅ CORRECT - envoie chaque log immédiatement
-def StreamLogs(self, request, context):
-    for i in range(10):
-        yield log  # Envoi immédiat
+def UpdateProfile(self, request, context):
+    # Re-dupliquer le code
+    token = dict(context.invocation_metadata()).get('authorization')
+    if not verify_token(token):
+        context.abort(grpc.StatusCode.PERMISSION_DENIED, "Non autorisé")
+    # Logique métier...
 ```
 
-### 3. Itération sur le flux côté client
+**✅ Avec interceptor** :
 ```python
-# Le client reçoit les logs AU FUR ET À MESURE
-for log in stub.StreamLogs(request):
-    print(log)  # Affiche chaque log dès réception
+# La vérification est centralisée !
+def GetProfile(self, request, context):
+    # Le token a déjà été vérifié par l'interceptor
+    # On peut directement traiter la requête
+    # Logique métier...
 ```
 
-### 4. Différence avec Unary RPC
+### 3. **Structure d'un JWT**
 
-| Unary RPC | Server Streaming |
-|-----------|------------------|
-| `response = stub.GetClient(request)` | `for log in stub.StreamLogs(request):` |
-| 1 réponse | Plusieurs réponses |
-| Client attend la fin | Client reçoit en temps réel |
+Un token JWT a 3 parties séparées par des `.` :
+```
+eyJhbGci...  .  eyJ1c2Vy...  .  SflKxwRJ...
+   HEADER        PAYLOAD        SIGNATURE
+```
+
+**Header** (encodé en Base64) :
+```json
+{
+  "alg": "HS256",
+  "typ": "JWT"
+}
+```
+
+**Payload** (encodé en Base64) :
+```json
+{
+  "user_id": 1,
+  "username": "alice",
+  "exp": 1738675200
+}
+```
+
+**Signature** :
+```
+HMACSHA256(
+  base64(header) + "." + base64(payload),
+  SECRET_KEY
+)
+```
+
+### 4. **Metadata vs Body**
+
+| Metadata | Body (Message) |
+|----------|----------------|
+| Comme les headers HTTP | Comme le body HTTP |
+| Pour infos transversales (auth, tracing) | Pour les données métier |
+| `context.invocation_metadata()` | `request.field` |
+| Exemple : token, user-agent | Exemple : user_id, email |
 
 ---
 
 ## 🎓 Questions de Compréhension
 
-1. Que se passe-t-il si vous utilisez `return` au lieu de `yield` dans le serveur ?
-2. Comment le client sait-il que le streaming est terminé ?
-3. Que se passe-t-il si le serveur crash pendant le streaming ?
-4. Peut-on avoir plusieurs clients connectés simultanément ? Comment ?
-5. Quelle est la différence entre server streaming et polling HTTP classique ?
+1. Pourquoi utilise-t-on JWT plutôt que de stocker les sessions côté serveur ?
+2. Que se passe-t-il si le SECRET_KEY est compromis ?
+3. Comment gérer le renouvellement des tokens expirés ?
+4. Pourquoi l'interceptor est-il plus efficace que vérifier dans chaque méthode ?
+5. Comment ajouter des rôles/permissions aux utilisateurs ?
 
 ---
 
 ## 🏆 Exercices Bonus
 
-### Niveau 1 : Filtrage par service
-- Ajoutez un champ `service_filter` dans `LogRequest`
-- Le serveur ne renvoie que les logs du service demandé
+### Niveau 1 : Durée de vie personnalisée
+- Ajoutez un paramètre `token_duration` dans LoginRequest
+- Le serveur génère un token avec la durée demandée
 
-### Niveau 2 : Plusieurs niveaux simultanés
-- Permettez au client de demander plusieurs niveaux : `["INFO", "WARNING"]`
-- Le serveur génère des logs mixtes
+### Niveau 2 : Refresh Token
+- Implémentez un système de refresh token
+- Le client peut renouveler son token sans re-saisir le mot de passe
 
-### Niveau 3 : Logs depuis un fichier
-- Au lieu de logs aléatoires, lisez un vrai fichier de logs ligne par ligne
-- Envoyez chaque ligne au client en streaming
+### Niveau 3 : Rôles et Permissions
+- Ajoutez un champ `role` aux utilisateurs (USER, ADMIN)
+- Seuls les ADMIN peuvent appeler UpdateProfile
+- Créez un interceptor qui vérifie les permissions
 
-### Niveau 4 : Statistiques en fin de streaming
-- Après le streaming, le serveur envoie un dernier message avec :
-  - Nombre total de logs envoyés
-  - Répartition par niveau
-  - Temps total écoulé
+### Niveau 4 : SSL/TLS
+- Remplacez `insecure_channel` par un canal sécurisé avec certificats
+- Utilisez `grpc.ssl_channel_credentials()`
 
-### Niveau 5 : Limitation de débit
-- Ajoutez un paramètre `logs_per_second` dans `LogRequest`
-- Le serveur adapte le délai entre chaque log
+### Niveau 5 : Rate Limiting
+- Limitez le nombre de tentatives de login (3 max par minute)
+- Bloquez temporairement l'utilisateur après 5 échecs
+
+### Niveau 6 : Tokens dans Base de Données
+- Stockez les tokens actifs en base
+- Permettez la révocation de tokens
 
 ---
 
-## 📊 Quand utiliser le Server Streaming ?
+## ⚠️ Sécurité en Production
 
-| ✅ Cas d'usage adaptés | ❌ Cas non adaptés |
-|------------------------|-------------------|
-| Logs temps réel | Simple requête/réponse |
-| Notifications push | Upload de fichier |
-| Flux d'actualités | CRUD classique |
-| Monitoring de metrics | Authentification |
-| Live updates | Opérations atomiques |
+Ce TP est pédagogique. En production, vous devez :
+
+1. **Ne JAMAIS** stocker les mots de passe en clair
+   - Utilisez `bcrypt` ou `argon2`
+
+2. **Ne JAMAIS** hardcoder le SECRET_KEY
+   - Utilisez des variables d'environnement
+
+3. **Toujours utiliser SSL/TLS**
+   - Pas de `insecure_channel` en prod
+
+4. **Durée de vie courte des tokens**
+   - Maximum 15 minutes pour les access tokens
+   - Utilisez des refresh tokens
+
+5. **Loguer les tentatives d'accès**
+   - Pour détecter les attaques
+
+6. **Valider les entrées**
+   - Protégez contre les injections
+
+---
+
+## 📊 Comparaison des Méthodes d'Auth
+
+| Méthode | Avantages | Inconvénients |
+|---------|-----------|---------------|
+| **JWT** | Sans état, scalable | Révocation difficile |
+| **Session** | Révocation facile | Nécessite stockage serveur |
+| **mTLS** | Très sécurisé | Complexe à gérer |
+| **API Key** | Simple | Moins flexible |
+| **OAuth2** | Standard industrie | Complexe à implémenter |
 
 ---
 
@@ -368,23 +756,23 @@ for log in stub.StreamLogs(request):
 
 Votre TP est réussi si :
 
-- ✅ Le fichier `.proto` est correctement défini avec le mot-clé `stream`
-- ✅ Le serveur utilise `yield` pour envoyer les logs
-- ✅ Le client affiche les logs **en temps réel** (pas tous à la fin)
-- ✅ Le streaming s'arrête après la durée demandée
-- ✅ Les logs contiennent timestamp, niveau, message et service
-- ✅ Le code gère les erreurs de connexion
-- ✅ Plusieurs clients peuvent se connecter simultanément
+- ✅ Le serveur refuse les requêtes sans token sur les méthodes protégées
+- ✅ Login génère un JWT valide
+- ✅ L'interceptor vérifie correctement les tokens
+- ✅ Les tokens expirés sont rejetés
+- ✅ Les tokens invalides retournent PERMISSION_DENIED
+- ✅ GetProfile et UpdateProfile fonctionnent avec un token valide
+- ✅ Le client gère correctement les erreurs d'authentification
 
 ---
 
 ## 📚 Ressources
 
-- [gRPC Server Streaming Documentation](https://grpc.io/docs/what-is-grpc/core-concepts/#server-streaming-rpc)
-- [Protocol Buffers Language Guide](https://developers.google.com/protocol-buffers/docs/proto3)
-- [Python gRPC Examples](https://github.com/grpc/grpc/tree/master/examples/python)
-- [gRPC vs REST vs WebSocket](https://www.baeldung.com/rest-vs-grpc)
+- [JWT.io - Debugger de tokens](https://jwt.io/)
+- [gRPC Authentication Guide](https://grpc.io/docs/guides/auth/)
+- [Python JWT Library](https://pyjwt.readthedocs.io/)
+- [gRPC Interceptors Documentation](https://grpc.github.io/grpc/python/grpc.html#service-side-interceptor)
 
 ---
 
-**Bon streaming ! 🚀📡**
+**Bonne sécurisation ! 🔒🚀**
