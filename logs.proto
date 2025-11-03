@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+message LogRequest {
+    string level = 1;
+    int32 duration = 2;
+}
+
+message LogEntry {
+    string timestamp = 1;
+    string level = 2;
+    string message = 3;
+    string service = 4;
+}
+
+service LogService {
+    rpc StreamLogs(LogRequest) returns (stream LogEntry);
+}

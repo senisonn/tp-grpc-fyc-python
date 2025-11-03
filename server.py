@@ -1,23 +1,44 @@
 import grpc
 from concurrent import futures
-import client_pb2
-import client_pb2_grpc
+import logs_pb2
+import logs_pb2_grpc
+import time
+from datetime import datetime
+import random
 
-class ClientServiceServicer(client_pb2_grpc.ClientServiceServicer):
-    def GetClient(self, request, context):
-        # Exemple de gestion des erreurs
-        if request.id <= 0:
-            return client_pb2.ClientResponse(error="ID invalide")
-        # Exemple de retour d'un client
-        client = client_pb2.Client(id=request.id, nom="Dupont", email="dupont@example.com")
-        return client_pb2.ClientResponse(client=client, error="")
+class LogServiceServicer(logs_pb2_grpc.LogServiceServicer):
+    def StreamLogs(self, request, context):
+        # Liste de messages d'exemple
+        messages = [
+            "Connexion utilisateur réussie",
+            "Requête API traitée",
+            "Erreur de connexion à la base de données",
+            "Cache mis à jour",
+            "Timeout sur le service externe"
+        ]
+        
+        services = ["api-gateway", "auth-service", "database", "cache-service"]
+        
+        end_time = time.time() + request.duration
+        
+        while time.time() < end_time:
+            # Générer un log aléatoire
+            log = logs_pb2.LogEntry(
+                timestamp=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                level=request.level,
+                message=random.choice(messages),
+                service=random.choice(services)
+            )
+            
+            yield log 
+            time.sleep(1) 
 
 def serve():
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
-    client_pb2_grpc.add_ClientServiceServicer_to_server(ClientServiceServicer(), server)
-    server.add_insecure_port('[::]:50051')
+    logs_pb2_grpc.add_LogServiceServicer_to_server(LogServiceServicer(), server)
+    server.add_insecure_port('[::]:50052')
     server.start()
-    print("Serveur gRPC démarré sur le port 50051")
+    print("🚀 Serveur de logs démarré sur le port 50052")
     server.wait_for_termination()
 
 if __name__ == '__main__':

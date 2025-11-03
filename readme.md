@@ -1,8 +1,41 @@
-# TP gRPC Python - Service de Gestion de Clients
+# TP gRPC Python - Service de Logs en Streaming 📡
 
 ## Objectif
 
-Ce TP a pour objectif de vous familiariser avec le framework **gRPC** en Python. Vous allez implémenter un service client-serveur simple permettant de récupérer des informations sur un client à partir de son identifiant.
+Ce TP vous permet de découvrir le **Server Streaming** avec gRPC. Vous allez implémenter un service de logs en temps réel, où le serveur envoie continuellement des logs au client, comme un système de monitoring.
+
+## Qu'est-ce que le Server Streaming ?
+
+Contrairement au **Unary RPC** (1 requête → 1 réponse), le **Server Streaming** fonctionne ainsi :
+- Le client envoie **1 requête**
+- Le serveur renvoie **un flux continu de réponses**
+
+**Cas d'usage** : Logs temps réel, notifications push, flux d'actualités, monitoring de système
+
+### Les 3 Types de Streaming gRPC
+
+#### 1. Server Streaming (ce TP)
+```
+Client ──[1 requête]──> Serveur
+Client <─[réponse 1]─── Serveur
+Client <─[réponse 2]─── Serveur
+Client <─[réponse 3]─── Serveur
+```
+
+#### 2. Client Streaming
+```
+Client ──[requête 1]──> Serveur
+Client ──[requête 2]──> Serveur
+Client <─[1 réponse]─── Serveur
+```
+
+#### 3. Bidirectional Streaming
+```
+Client ──[requête 1]──> Serveur
+Client <─[réponse 1]─── Serveur
+Client ──[requête 2]──> Serveur
+Client <─[réponse 2]─── Serveur
+```
 
 ## Prérequis
 
@@ -14,135 +47,344 @@ Ce TP a pour objectif de vous familiariser avec le framework **gRPC** en Python.
 
 ## Architecture du Projet
 
-Le projet se compose de trois fichiers principaux :
+```
+logs_streaming/
+├── logs.proto          # Définition du protocole
+├── server.py           # Serveur de logs
+├── client.py           # Client qui reçoit les logs
+└── README.md
+```
 
-- `client.proto` : Définition du protocole gRPC (Protocol Buffers)
-- `server.py` : Implémentation du serveur gRPC
-- `client.py` : Implémentation du client gRPC
-- `client_test.py` : Tests unitaires
+---
 
-## Travail à Réaliser
+## 🎯 Travail à Réaliser
 
 ### Étape 1 : Définir le fichier Protocol Buffers
 
-Créez un fichier `client.proto` qui définit :
+Créez un fichier `logs.proto` avec la structure suivante :
 
-- **Message `Client`** avec les champs suivants :
-  - `id` (int32)
-  - `nom` (string)
-  - `email` (string)
+#### **Message `LogRequest`** (requête du client)
+Le client envoie cette requête pour demander des logs :
+- `level` (string) : Niveau de log demandé ("INFO", "WARNING", "ERROR")
+- `duration` (int32) : Durée en secondes pendant laquelle recevoir les logs
 
-- **Message `ClientRequest`** pour la requête :
-  - `id` (int32)
+#### **Message `LogEntry`** (chaque log envoyé par le serveur)
+Chaque log contient :
+- `timestamp` (string) : Date et heure du log
+- `level` (string) : Niveau du log
+- `message` (string) : Contenu du log
+- `service` (string) : Nom du service qui a généré le log
 
-- **Message `ClientResponse`** pour la réponse :
-  - `client` (type Client, optionnel)
-  - `error` (string, pour gérer les erreurs)
+#### **Service `LogService`**
+Définissez une méthode RPC :
+```protobuf
+rpc StreamLogs(LogRequest) returns (stream LogEntry);
+```
 
-- **Service `ClientService`** avec une méthode RPC :
-  - `GetClient(ClientRequest)` qui retourne `ClientResponse`
+⚠️ **Point clé** : Le mot-clé `stream` devant `LogEntry` indique que le serveur va envoyer **plusieurs** messages, pas un seul.
+
+**Indice pour le fichier complet** :
+```protobuf
+syntax = "proto3";
+
+message LogRequest {
+    // À compléter
+}
+
+message LogEntry {
+    // À compléter
+}
+
+service LogService {
+    // À compléter
+}
+```
 
 ### Étape 2 : Générer les fichiers Python
 
-Compilez le fichier `.proto` pour générer les fichiers Python nécessaires :
+Compilez le fichier `.proto` :
 
 ```bash
-python -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. client.proto
+python -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. logs.proto
 ```
 
-ou 
-
-Avec les scripts dans les dossier : `windows` et `linux`
-
 Cela génère :
-- `client_pb2.py` : Classes de messages
-- `client_pb2_grpc.py` : Classes de services
+- `logs_pb2.py` : Classes de messages
+- `logs_pb2_grpc.py` : Classes de services
+
+---
 
 ### Étape 3 : Implémenter le Serveur
 
-Dans `server.py`, implémentez :
+Dans `server.py`, vous devez créer :
 
-1. Une classe `ClientServiceServicer` qui hérite de `client_pb2_grpc.ClientServiceServicer`
-2. La méthode `GetClient` qui :
-   - Vérifie que l'ID est valide (> 0)
-   - Retourne une erreur si l'ID est invalide
-   - Retourne un objet `Client` avec des données exemple si l'ID est valide
-3. Une fonction `serve()` qui :
-   - Crée un serveur gRPC
-   - Enregistre le service
-   - Écoute sur le port 50051
-   - Attend les connexions
+#### **Classe `LogServiceServicer`**
+
+Héritez de `logs_pb2_grpc.LogServiceServicer` et implémentez la méthode `StreamLogs`.
+
+**Spécifications** :
+
+1. **Récupérer les paramètres** de la requête (level, duration)
+
+2. **Créer des listes de messages** pour chaque niveau de log :
+   - INFO : "Connexion utilisateur réussie", "Requête API traitée", etc.
+   - WARNING : "Utilisation mémoire élevée", "Temps de réponse lent", etc.
+   - ERROR : "Erreur de connexion DB", "Timeout service externe", etc.
+
+3. **Créer une liste de services** : ["api-gateway", "auth-service", "database", "cache-service", "worker"]
+
+4. **Générer des logs en boucle** :
+   - Calculer le timestamp de fin : `end_time = time.time() + request.duration`
+   - Tant que `time.time() < end_time` :
+     - Choisir un message aléatoire (utilisez `random.choice()`)
+     - Créer un objet `LogEntry` avec timestamp, level, message, service
+     - **Utiliser `yield` pour envoyer le log** (pas `return` !)
+     - Attendre 1 seconde avec `time.sleep(1)`
+
+**Imports nécessaires** :
+```python
+import grpc
+from concurrent import futures
+import logs_pb2
+import logs_pb2_grpc
+import time
+from datetime import datetime
+import random
+```
+
+**Squelette de code** :
+```python
+class LogServiceServicer(logs_pb2_grpc.LogServiceServicer):
+    def StreamLogs(self, request, context):
+        # Messages d'exemple
+        messages = {
+            "INFO": [...],
+            "WARNING": [...],
+            "ERROR": [...]
+        }
+        
+        services = [...]
+        
+        end_time = time.time() + request.duration
+        
+        while time.time() < end_time:
+            # Générer un log
+            log = logs_pb2.LogEntry(
+                timestamp=...,
+                level=...,
+                message=...,
+                service=...
+            )
+            
+            yield log  # ⚠️ CRUCIAL : yield, pas return !
+            time.sleep(1)
+
+def serve():
+    server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
+    logs_pb2_grpc.add_LogServiceServicer_to_server(LogServiceServicer(), server)
+    server.add_insecure_port('[::]:50052')
+    server.start()
+    print("🚀 Serveur de logs démarré sur le port 50052")
+    server.wait_for_termination()
+```
+
+---
 
 ### Étape 4 : Implémenter le Client
 
-Dans `client.py`, implémentez :
+Dans `client.py`, créez une fonction `stream_logs(level, duration)` :
 
-1. Une fonction `get_client(client_id)` qui :
-   - Se connecte au serveur sur `localhost:50051`
-   - Crée un stub pour appeler le service
-   - Envoie une requête avec l'ID du client
-   - Affiche le résultat ou l'erreur reçue
+**Spécifications** :
 
-### Étape 5 : Écrire les Tests
+1. **Se connecter** au serveur sur `localhost:50052`
+2. **Créer un stub** du service
+3. **Créer et envoyer la requête** avec le niveau et la durée
+4. **Itérer sur le flux de réponses** :
+   - Utilisez une boucle `for log in stub.StreamLogs(request):`
+   - Affichez chaque log au format : `[timestamp] [level] [service] message`
+5. **Gérer les erreurs** avec un bloc `try/except`
 
-Dans `client_test.py`, créez des tests unitaires qui vérifient :
+**Squelette de code** :
+```python
+import grpc
+import logs_pb2
+import logs_pb2_grpc
 
-1. La récupération d'un client avec un ID valide
-2. La gestion d'erreur pour un ID invalide (négatif)
+def stream_logs(level, duration):
+    with grpc.insecure_channel('localhost:50052') as channel:
+        stub = logs_pb2_grpc.LogServiceStub(channel)
+        
+        request = logs_pb2.LogRequest(level=level, duration=duration)
+        
+        print(f"📡 Streaming des logs de niveau {level} pendant {duration} secondes...\n")
+        
+        try:
+            for log in stub.StreamLogs(request):
+                # Afficher le log
+                print(f"[{log.timestamp}] [{log.level}] [{log.service}] {log.message}")
+        except grpc.RpcError as e:
+            print(f"❌ Erreur gRPC: {e}")
 
-## Exécution
+if __name__ == '__main__':
+    stream_logs("INFO", 10)
+```
 
-### Lancer le serveur
+**Bonus** : Créez un menu interactif permettant de choisir :
+- Le niveau de log (INFO/WARNING/ERROR)
+- La durée du streaming
+- Plusieurs scénarios pré-configurés
+
+---
+
+## 🚀 Exécution
+
+### 1. Générer les fichiers gRPC
+
+```bash
+python -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. logs.proto
+```
+
+### 2. Lancer le serveur
 
 ```bash
 python server.py
 ```
 
-Le serveur démarre et affiche :
+Sortie attendue :
 ```
-Serveur gRPC démarré sur le port 50051
+🚀 Serveur de logs démarré sur le port 50052
+En attente de connexions...
 ```
 
-### Lancer le client
-
-Dans un autre terminal :
+### 3. Lancer le client (dans un autre terminal)
 
 ```bash
 python client.py
 ```
 
-Résultat attendu :
+Sortie attendue :
 ```
-Client récupéré: Dupont (dupont@example.com)
+📡 Streaming des logs de niveau INFO pendant 10 secondes...
+
+[2025-11-03 14:32:01] [INFO] [api-gateway] Connexion utilisateur réussie
+[2025-11-03 14:32:02] [INFO] [cache-service] Cache mis à jour
+[2025-11-03 14:32:03] [INFO] [database] Requête API traitée
+...
+✅ Streaming terminé après 10 secondes
 ```
-
-### Lancer les tests
-
-```bash
-python client_test.py
-```
-
-## Points Clés à Comprendre
-
-1. **Protocol Buffers** : Langage de sérialisation de données structurées
-2. **gRPC** : Framework RPC haute performance basé sur HTTP/2
-3. **Stub** : Client-side proxy pour appeler les méthodes distantes
-4. **Servicer** : Classe serveur qui implémente la logique métier
-5. **Gestion des erreurs** : Utilisation de messages d'erreur dans les réponses
-
-## Extensions Possibles
-
-- Ajouter une base de données pour stocker les clients
-- Implémenter d'autres méthodes CRUD (Create, Update, Delete)
-- Ajouter l'authentification
-- Utiliser le streaming gRPC pour des requêtes multiples
-- Gérer les métadonnées et les intercepteurs
-
-## Ressources
-
-- [Documentation gRPC Python](https://grpc.io/docs/languages/python/)
-- [Protocol Buffers Guide](https://developers.google.com/protocol-buffers)
 
 ---
 
-**Bon courage !**
+## 🔑 Concepts Clés à Retenir
+
+### 1. Le mot-clé `stream` dans le .proto
+```protobuf
+rpc StreamLogs(LogRequest) returns (stream LogEntry);
+```
+- Sans `stream` : le serveur renvoie **1 seul** LogEntry
+- Avec `stream` : le serveur renvoie **plusieurs** LogEntry
+
+### 2. `yield` vs `return` dans le serveur
+```python
+# ❌ FAUX - enverrait tous les logs d'un coup à la fin
+def StreamLogs(self, request, context):
+    logs = []
+    for i in range(10):
+        logs.append(log)
+    return logs
+
+# ✅ CORRECT - envoie chaque log immédiatement
+def StreamLogs(self, request, context):
+    for i in range(10):
+        yield log  # Envoi immédiat
+```
+
+### 3. Itération sur le flux côté client
+```python
+# Le client reçoit les logs AU FUR ET À MESURE
+for log in stub.StreamLogs(request):
+    print(log)  # Affiche chaque log dès réception
+```
+
+### 4. Différence avec Unary RPC
+
+| Unary RPC | Server Streaming |
+|-----------|------------------|
+| `response = stub.GetClient(request)` | `for log in stub.StreamLogs(request):` |
+| 1 réponse | Plusieurs réponses |
+| Client attend la fin | Client reçoit en temps réel |
+
+---
+
+## 🎓 Questions de Compréhension
+
+1. Que se passe-t-il si vous utilisez `return` au lieu de `yield` dans le serveur ?
+2. Comment le client sait-il que le streaming est terminé ?
+3. Que se passe-t-il si le serveur crash pendant le streaming ?
+4. Peut-on avoir plusieurs clients connectés simultanément ? Comment ?
+5. Quelle est la différence entre server streaming et polling HTTP classique ?
+
+---
+
+## 🏆 Exercices Bonus
+
+### Niveau 1 : Filtrage par service
+- Ajoutez un champ `service_filter` dans `LogRequest`
+- Le serveur ne renvoie que les logs du service demandé
+
+### Niveau 2 : Plusieurs niveaux simultanés
+- Permettez au client de demander plusieurs niveaux : `["INFO", "WARNING"]`
+- Le serveur génère des logs mixtes
+
+### Niveau 3 : Logs depuis un fichier
+- Au lieu de logs aléatoires, lisez un vrai fichier de logs ligne par ligne
+- Envoyez chaque ligne au client en streaming
+
+### Niveau 4 : Statistiques en fin de streaming
+- Après le streaming, le serveur envoie un dernier message avec :
+  - Nombre total de logs envoyés
+  - Répartition par niveau
+  - Temps total écoulé
+
+### Niveau 5 : Limitation de débit
+- Ajoutez un paramètre `logs_per_second` dans `LogRequest`
+- Le serveur adapte le délai entre chaque log
+
+---
+
+## 📊 Quand utiliser le Server Streaming ?
+
+| ✅ Cas d'usage adaptés | ❌ Cas non adaptés |
+|------------------------|-------------------|
+| Logs temps réel | Simple requête/réponse |
+| Notifications push | Upload de fichier |
+| Flux d'actualités | CRUD classique |
+| Monitoring de metrics | Authentification |
+| Live updates | Opérations atomiques |
+
+---
+
+## ✅ Critères de Validation
+
+Votre TP est réussi si :
+
+- ✅ Le fichier `.proto` est correctement défini avec le mot-clé `stream`
+- ✅ Le serveur utilise `yield` pour envoyer les logs
+- ✅ Le client affiche les logs **en temps réel** (pas tous à la fin)
+- ✅ Le streaming s'arrête après la durée demandée
+- ✅ Les logs contiennent timestamp, niveau, message et service
+- ✅ Le code gère les erreurs de connexion
+- ✅ Plusieurs clients peuvent se connecter simultanément
+
+---
+
+## 📚 Ressources
+
+- [gRPC Server Streaming Documentation](https://grpc.io/docs/what-is-grpc/core-concepts/#server-streaming-rpc)
+- [Protocol Buffers Language Guide](https://developers.google.com/protocol-buffers/docs/proto3)
+- [Python gRPC Examples](https://github.com/grpc/grpc/tree/master/examples/python)
+- [gRPC vs REST vs WebSocket](https://www.baeldung.com/rest-vs-grpc)
+
+---
+
+**Bon streaming ! 🚀📡**

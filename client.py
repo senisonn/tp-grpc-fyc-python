@@ -1,16 +1,23 @@
 import grpc
-import client_pb2
-import client_pb2_grpc
+import logs_pb2
+import logs_pb2_grpc
 
-def get_client(client_id):
-    with grpc.insecure_channel('localhost:50051') as channel:
-        stub = client_pb2_grpc.ClientServiceStub(channel)
-        request = client_pb2.ClientRequest(id=client_id)
-        response = stub.GetClient(request)
-        if response.error:
-            print(f"Erreur: {response.error}")
-        else:
-            print(f"Client récupéré: {response.client.nom} ({response.client.email})")
+def stream_logs(level, duration):
+    with grpc.insecure_channel('localhost:50052') as channel:
+        stub = logs_pb2_grpc.LogServiceStub(channel)
+        
+        # Créer la requête
+        request = logs_pb2.LogRequest(level=level, duration=duration)
+        
+        print(f"📡 Streaming des logs de niveau {level} pendant {duration} secondes...\n")
+        
+        # Recevoir le flux de logs
+        try:
+            for log in stub.StreamLogs(request):
+                print(f"[{log.timestamp}] [{log.level}] [{log.service}] {log.message}")
+        except grpc.RpcError as e:
+            print(f"❌ Erreur gRPC: {e}")
 
 if __name__ == '__main__':
-    get_client(1)  # Exemple avec ID = 1
+    #stream_logs("INFO", 10)  
+    stream_logs("ERROR", 5)
