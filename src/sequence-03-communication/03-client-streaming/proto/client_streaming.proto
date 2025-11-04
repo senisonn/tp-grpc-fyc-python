@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+package client_streaming;
+
+service ClientStreaming {
+  // Client streaming RPC - client sends stream of requests, server sends one response
+  rpc GetServerResponse(stream Message) returns (MessageResponse) {}
+}
+
+message Message {
+  string message = 1;
+}
+
+message MessageResponse {
+  string message = 1;
+  int32 messages_received = 2;
+}
