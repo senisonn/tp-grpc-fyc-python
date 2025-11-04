@@ -1,0 +1,44 @@
+[tool.poetry]
+name = "grpc-service"
+version = "0.1.0"
+description = "A gRPC service with Python, Black, Ruff, and MyPy."
+authors = ["Your Name <email@example.com>"]
+package-mode = false
+
+[tool.poetry.dependencies]
+python = "^3.11"
+grpcio = "^1.60"
+grpcio-tools = "^1.60"
+protobuf = "^4.25"
+typing_extensions = "^4.10"
+
+[tool.poetry.group.dev.dependencies]
+black = "^24.10"
+ruff = "^0.4"
+mypy = "^1.8"
+mypy-protobuf = "^3.6"
+isort = "^5.12"
+pre-commit = "^3.5"
+types-protobuf = "^4.21"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.black]
+line-length = 88
+target-version = ["py311"]
+
+[tool.ruff]
+line-length = 88
+select = ["E", "F", "W", "C", "RUF"]
+ignore = ["E203", "W503"]
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+strict = false
+
+[tool.isort]
+profile = "black"
+line_length = 88
