@@ -1,0 +1,77 @@
+syntax = "proto3";
+
+/**
+ * Example demonstrating basic scalar types in Protocol Buffers
+ * This file shows all common scalar types and their usage
+ */
+
+// A simple user message demonstrating basic types
+message User {
+  // Integer types
+  int32 id = 1;                    // 32-bit signed integer
+  uint32 follower_count = 2;       // 32-bit unsigned integer
+  int64 large_number = 3;          // 64-bit signed integer
+
+  // String type (UTF-8 or 7-bit ASCII)
+  string username = 4;
+  string email = 5;
+
+  // Boolean type
+  bool is_active = 6;
+  bool is_verified = 7;
+
+  // Floating point types
+  float rating = 8;                // 32-bit float
+  double precise_value = 9;        // 64-bit float
+
+  // Bytes type (arbitrary binary data)
+  bytes profile_picture = 10;
+}
+
+// Message showing different integer types for different use cases
+message IntegerTypes {
+  // Regular integers (most common)
+  int32 regular_int = 1;
+
+  // Signed integers (efficient for negative values)
+  sint32 temperature = 2;          // Often negative
+  sint64 balance = 3;              // Can be negative
+
+  // Unsigned integers (never negative)
+  uint32 age = 4;                  // Always positive
+  uint64 timestamp = 5;            // Always positive
+
+  // Fixed-size integers (always use exact bytes)
+  fixed32 fixed_value = 6;         // Always 4 bytes
+  fixed64 large_fixed = 7;         // Always 8 bytes
+  sfixed32 signed_fixed = 8;       // Signed, always 4 bytes
+  sfixed64 large_signed_fixed = 9; // Signed, always 8 bytes
+}
+
+// Message demonstrating all basic types in one place
+message AllBasicTypes {
+  // Integers
+  int32 int32_field = 1;
+  int64 int64_field = 2;
+  uint32 uint32_field = 3;
+  uint64 uint64_field = 4;
+  sint32 sint32_field = 5;
+  sint64 sint64_field = 6;
+  fixed32 fixed32_field = 7;
+  fixed64 fixed64_field = 8;
+  sfixed32 sfixed32_field = 9;
+  sfixed64 sfixed64_field = 10;
+
+  // Floating point
+  float float_field = 11;
+  double double_field = 12;
+
+  // Boolean
+  bool bool_field = 13;
+
+  // String
+  string string_field = 14;
+
+  // Bytes
+  bytes bytes_field = 15;
+}

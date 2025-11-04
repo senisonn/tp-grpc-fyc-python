@@ -1,0 +1,78 @@
+syntax = "proto3";
+
+/**
+ * Example demonstrating repeated fields (lists/arrays) in Protocol Buffers
+ */
+
+// User with multiple emails
+message User {
+  int32 id = 1;
+  string name = 2;
+  repeated string emails = 3;           // List of strings
+  repeated string phone_numbers = 4;    // List of phone numbers
+}
+
+// Shopping cart with multiple items
+message ShoppingCart {
+  int32 user_id = 1;
+  repeated Product products = 2;        // List of Product messages
+  repeated int32 product_ids = 3;       // List of IDs
+  float total = 4;
+}
+
+message Product {
+  int32 id = 1;
+  string name = 2;
+  float price = 3;
+  int32 quantity = 4;
+}
+
+// Blog post with tags and comments
+message BlogPost {
+  int32 id = 1;
+  string title = 2;
+  string content = 3;
+  string author = 4;
+  repeated string tags = 5;             // List of tags
+  repeated Comment comments = 6;        // List of comments
+}
+
+message Comment {
+  int32 id = 1;
+  string author = 2;
+  string text = 3;
+  int64 timestamp = 4;
+}
+
+// Organization with multiple employees
+message Organization {
+  string name = 1;
+  repeated Employee employees = 2;
+  repeated string locations = 3;
+  repeated Department departments = 4;
+}
+
+message Employee {
+  int32 id = 1;
+  string name = 2;
+  string email = 3;
+  string department = 4;
+}
+
+message Department {
+  string name = 1;
+  int32 employee_count = 2;
+  string manager = 3;
+}
+
+// Survey with multiple questions and answers
+message Survey {
+  string title = 1;
+  repeated Question questions = 2;
+}
+
+message Question {
+  int32 id = 1;
+  string text = 2;
+  repeated string options = 3;  // Multiple choice options
+}

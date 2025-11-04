@@ -1,0 +1,102 @@
+syntax = "proto3";
+
+/**
+ * Example demonstrating map fields (key-value pairs) in Protocol Buffers
+ */
+
+// User preferences with key-value settings
+message UserPreferences {
+  string user_id = 1;
+  map<string, string> settings = 2;        // String to string map
+  map<string, int32> counters = 3;         // String to int map
+  map<string, bool> features = 4;          // String to bool map
+}
+
+// Product catalog with attributes
+message Product {
+  int32 id = 1;
+  string name = 2;
+  map<string, string> attributes = 3;      // e.g., "color" -> "red"
+  map<string, float> dimensions = 4;       // e.g., "width" -> 10.5
+  map<string, int32> stock = 5;            // e.g., "warehouse_A" -> 100
+}
+
+// Internationalization with translations
+message Translation {
+  string key = 1;
+  map<string, string> translations = 2;    // language code -> translation
+}
+
+message LocalizedApp {
+  string app_name = 1;
+  map<string, Translation> strings = 2;    // key -> translations
+}
+
+// Analytics data with metrics
+message Analytics {
+  string session_id = 1;
+  map<string, int64> metrics = 2;          // metric name -> count
+  map<string, float> rates = 3;            // metric name -> rate
+  map<string, string> dimensions = 4;      // dimension name -> value
+}
+
+// Configuration with nested maps
+message ServiceConfig {
+  string service_name = 1;
+  map<string, string> environment_vars = 2;
+  map<string, int32> limits = 3;
+  map<string, bool> feature_flags = 4;
+}
+
+// Student grades
+message StudentRecord {
+  string student_id = 1;
+  string name = 2;
+  map<string, float> grades = 3;           // subject -> grade
+  map<string, int32> attendance = 4;       // subject -> days attended
+}
+
+// Server metadata
+message ServerMetadata {
+  string server_id = 1;
+  map<string, string> labels = 2;          // arbitrary labels
+  map<string, int64> metrics = 3;          // metric name -> value
+  map<int32, string> error_messages = 4;   // error code -> message
+}
+
+// Note: Map keys can be any scalar type except float, double, or bytes
+message MapKeyTypes {
+  map<int32, string> int_to_string = 1;
+  map<int64, string> long_to_string = 2;
+  map<uint32, string> uint_to_string = 3;
+  map<bool, string> bool_to_string = 4;
+  map<string, string> string_to_string = 5;
+
+  // These are NOT allowed (will cause compilation error):
+  // map<float, string> float_to_string = 6;     // L float not allowed as key
+  // map<double, string> double_to_string = 7;   // L double not allowed as key
+  // map<bytes, string> bytes_to_string = 8;     // L bytes not allowed as key
+}
+
+// Combining maps and repeated fields
+message UserProfile {
+  string user_id = 1;
+  string name = 2;
+  map<string, string> metadata = 3;
+  repeated string tags = 4;
+  map<string, repeated string> lists = 5;  // L This is NOT allowed!
+                                            // Maps cannot have repeated values
+}
+
+// Correct way to have lists in maps: use a message wrapper
+message StringList {
+  repeated string values = 1;
+}
+
+message UserProfileCorrect {
+  string user_id = 1;
+  string name = 2;
+  map<string, string> metadata = 3;
+  repeated string tags = 4;
+  map<string, StringList> lists = 5;      //  Correct: map to message containing list
+}
