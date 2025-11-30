@@ -4,27 +4,24 @@ __pycache__/
 *$py.class
 *.so
 .Python
-venv/
 env/
-.env
-*.egg-info/
-dist/
-build/
+venv/
+ENV/
+.venv
 
-# Node
-node_modules/
-npm-debug.log
-yarn-error.log
-.next/
-out/
-build/
-
-# gRPC Generated
+# Proto generated files
 *_pb2.py
 *_pb2_grpc.py
 *_pb.js
 *_grpc_web_pb.js
-*.d.ts
+
+# Logs
+*.log
+logs/
+
+# Environment
+.env
+.env.local
 
 # IDE
 .vscode/
@@ -32,28 +29,22 @@ build/
 *.swp
 *.swo
 
+# Node
+node_modules/
+npm-debug.log
+yarn-error.log
+build/
+dist/
+
+# Docker
+*.tar
+docker-compose.override.yml
+
 # OS
 .DS_Store
 Thumbs.db
 
-# Certificates
-*.pem
-*.key
-*.crt
-!example.pem
-
-# Databases
-*.db
-*.sqlite
-
-# Logs
-*.log
-logs/
-
-# Docker
-docker-compose.override.yml
-
-# Testing
+# Tests
+.pytest_cache/
 .coverage
 htmlcov/
-.pytest_cache/
