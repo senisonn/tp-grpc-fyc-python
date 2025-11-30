@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+package common;
+
+// Messages communs utilisés par tous les services
+
+message Empty {}
+
+message Status {
+  bool success = 1;
+  string message = 2;
+  int32 code = 3;
+}
+
+message Timestamp {
+  int64 seconds = 1;
+  int32 nanos = 2;
+}
+
+message ErrorResponse {
+  string error = 1;
+  string details = 2;
+  int32 code = 3;
+}

@@ -2,28 +2,102 @@ syntax = "proto3";
 
 package chat;
 
+import "common.proto";
+
 service ChatService {
-  // Unary
+  // Gestion des rooms
   rpc CreateRoom(CreateRoomRequest) returns (Room);
+  rpc ListRooms(ListRoomsRequest) returns (ListRoomsResponse);
   rpc JoinRoom(JoinRoomRequest) returns (JoinRoomResponse);
+  rpc LeaveRoom(LeaveRoomRequest) returns (common.Status);
   
-  // Bidirectional streaming
+  // Messagerie temps réel
   rpc StreamMessages(stream ChatMessage) returns (stream ChatMessage);
   
-  // Server streaming
+  // Historique
   rpc GetRoomHistory(RoomHistoryRequest) returns (stream ChatMessage);
+  
+  // Informations room
+  rpc GetRoomMembers(GetRoomMembersRequest) returns (RoomMembersResponse);
 }
 
-message ChatMessage {
-  string room_id = 1;
-  string user_id = 2;
-  string username = 3;
-  string content = 4;
-  int64 timestamp = 5;
+// Messages pour les rooms
+message CreateRoomRequest {
+  string name = 1;
+  string description = 2;
+  string created_by = 3;
 }
 
 message Room {
   string id = 1;
   string name = 2;
-  repeated string members = 3;
+  string description = 3;
+  string created_by = 4;
+  int64 created_at = 5;
+  int32 member_count = 6;
+}
+
+message ListRoomsRequest {
+  int32 page = 1;
+  int32 limit = 2;
+}
+
+message ListRoomsResponse {
+  repeated Room rooms = 1;
+  int32 total = 2;
+}
+
+message JoinRoomRequest {
+  string room_id = 1;
+  string user_id = 2;
+  string username = 3;
+}
+
+message JoinRoomResponse {
+  bool success = 1;
+  string message = 2;
+  Room room = 3;
+}
+
+message LeaveRoomRequest {
+  string room_id = 1;
+  string user_id = 2;
+}
+
+// Messages de chat
+message ChatMessage {
+  string id = 1;
+  string room_id = 2;
+  string user_id = 3;
+  string username = 4;
+  string content = 5;
+  int64 timestamp = 6;
+  MessageType type = 7;
+}
+
+enum MessageType {
+  TEXT = 0;
+  SYSTEM = 1;
+  JOIN = 2;
+  LEAVE = 3;
+}
+
+message RoomHistoryRequest {
+  string room_id = 1;
+  int32 limit = 2;
+  int64 before_timestamp = 3;
+}
+
+message GetRoomMembersRequest {
+  string room_id = 1;
+}
+
+message RoomMembersResponse {
+  repeated RoomMember members = 1;
+}
+
+message RoomMember {
+  string user_id = 1;
+  string username = 2;
+  int64 joined_at = 3;
 }

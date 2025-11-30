@@ -2,18 +2,69 @@ syntax = "proto3";
 
 package logging;
 
+import "common.proto";
+
 service LoggingService {
-  // Server streaming pour logs temps réel
-  rpc StreamLogs(stream LogEntry) returns (LogResponse);
+  // Streaming de logs
+  rpc StreamLogs(stream LogEntry) returns (common.Status);
   
-  // Unary pour métriques
-  rpc GetMetrics(MetricsRequest) returns (MetricsResponse);
+  // Récupération de logs
+  rpc GetLogs(GetLogsRequest) returns (stream LogEntry);
+  
+  // Métriques
+  rpc GetMetrics(GetMetricsRequest) returns (MetricsResponse);
+  
+  // Health check
+  rpc HealthCheck(common.Empty) returns (HealthCheckResponse);
 }
 
 message LogEntry {
+  string id = 1;
+  string service_name = 2;
+  LogLevel level = 3;
+  string message = 4;
+  int64 timestamp = 5;
+  map<string, string> metadata = 6;
+  string trace_id = 7;
+}
+
+enum LogLevel {
+  DEBUG = 0;
+  INFO = 1;
+  WARNING = 2;
+  ERROR = 3;
+  CRITICAL = 4;
+}
+
+message GetLogsRequest {
   string service_name = 1;
-  string level = 2;  // INFO, WARNING, ERROR
-  string message = 3;
-  int64 timestamp = 4;
-  map<string, string> metadata = 5;
+  LogLevel min_level = 2;
+  int64 start_time = 3;
+  int64 end_time = 4;
+  int32 limit = 5;
+}
+
+message GetMetricsRequest {
+  string service_name = 1;
+  int64 start_time = 2;
+  int64 end_time = 3;
+}
+
+message MetricsResponse {
+  map<string, int32> log_counts_by_level = 1;
+  int32 total_logs = 2;
+  repeated ServiceMetric service_metrics = 3;
+}
+
+message ServiceMetric {
+  string service_name = 1;
+  int32 log_count = 2;
+  int32 error_count = 3;
+  double average_response_time = 4;
+}
+
+message HealthCheckResponse {
+  bool healthy = 1;
+  string version = 2;
+  int64 uptime_seconds = 3;
 }

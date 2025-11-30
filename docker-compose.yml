@@ -47,18 +47,7 @@ services:
       - logs-data:/app/logs
     networks:
       - grpc-network
-
-  frontend:
-    build: ./frontend
-    ports:
-      - "3000:3000"
-    environment:
-      - REACT_APP_GRPC_ENDPOINT=http://localhost:8080
-    depends_on:
-      - envoy
-    networks:
-      - grpc-network
-
+      
 networks:
   grpc-network:
     driver: bridge
