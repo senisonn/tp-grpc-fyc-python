@@ -1,0 +1,78 @@
+# Configuration Envoy de base pour gRPC-Web
+#
+# Cette configuration minimale permet de démarrer rapidement avec gRPC-Web.
+# Utilisez-la pour le développement et les tests.
+
+static_resources:
+  
+  listeners:
+  - name: listener_0
+    address:
+      socket_address:
+        protocol: TCP
+        address: 0.0.0.0
+        port_value: 8080
+    
+    filter_chains:
+    - filters:
+      - name: envoy.filters.network.http_connection_manager
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+          stat_prefix: grpc_web
+          codec_type: AUTO
+          
+          # Route configuration
+          route_config:
+            name: local_route
+            virtual_hosts:
+            - name: local_service
+              domains: ["*"]
+              routes:
+              - match:
+                  prefix: "/"
+                route:
+                  cluster: grpc_backend
+                  timeout: 30s
+          
+          # HTTP filters
+          http_filters:
+          # gRPC-Web filter pour la traduction
+          - name: envoy.filters.http.grpc_web
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.grpc_web.v3.GrpcWeb
+          
+          # Router filter (doit être en dernier)
+          - name: envoy.filters.http.router
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+
+  clusters:
+  - name: grpc_backend
+    type: LOGICAL_DNS
+    lb_policy: ROUND_ROBIN
+    dns_lookup_family: V4_ONLY
+    connect_timeout: 0.25s
+    
+    # Configuration HTTP/2 pour gRPC
+    typed_extension_protocol_options:
+      envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
+        "@type": type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
+        explicit_http_config:
+          http2_protocol_options: {}
+    
+    load_assignment:
+      cluster_name: grpc_backend
+      endpoints:
+      - lb_endpoints:
+        - endpoint:
+            address:
+              socket_address:
+                address: localhost
+                port_value: 50051
+
+# Interface d'administration
+admin:
+  address:
+    socket_address:
+      address: 0.0.0.0
+      port_value: 9901

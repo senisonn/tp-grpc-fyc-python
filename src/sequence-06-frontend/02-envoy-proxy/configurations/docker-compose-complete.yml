@@ -1,0 +1,289 @@
+version: '3.8'
+
+# Configuration Docker Compose complète pour gRPC-Web
+# Inclut: Envoy Proxy, Serveur gRPC, Frontend React, Base de données
+
+services:
+  # ============================================
+  # ENVOY PROXY - Point d'entrée pour le frontend
+  # ============================================
+  envoy:
+    image: envoyproxy/envoy:v1.28-latest
+    container_name: grpc-web-envoy
+    
+    ports:
+      - "8080:8080"   # HTTP (développement)
+      - "8443:8443"   # HTTPS (production)
+      - "9901:9901"   # Admin interface
+    
+    volumes:
+      # Configuration Envoy
+      - ./envoy-with-cors.yaml:/etc/envoy/envoy.yaml:ro
+      # Certificats TLS (si production)
+      - ./certs:/etc/envoy/certs:ro
+      # Logs
+      - envoy-logs:/var/log/envoy
+    
+    command: ["-c", "/etc/envoy/envoy.yaml", "--log-level", "info"]
+    
+    depends_on:
+      - grpc-server
+    
+    networks:
+      - grpc-network
+    
+    restart: unless-stopped
+    
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "9901"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ============================================
+  # SERVEUR gRPC - Backend
+  # ============================================
+  grpc-server:
+    # Option 1: Image custom (à build)
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    
+    # Option 2: Image pré-construite
+    # image: my-company/grpc-server:latest
+    
+    container_name: grpc-backend
+    
+    ports:
+      - "50051:50051"  # Port gRPC (pour debug, optionnel)
+    
+    environment:
+      # Configuration de l'application
+      - PORT=50051
+      - DATABASE_URL=postgresql://grpc_user:grpc_password@postgres:5432/grpc_db
+      - REDIS_URL=redis://redis:6379/0
+      - LOG_LEVEL=info
+      # Variables de production
+      - ENVIRONMENT=production
+      - JWT_SECRET=${JWT_SECRET:-change-me-in-production}
+    
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    
+    networks:
+      - grpc-network
+    
+    restart: unless-stopped
+    
+    healthcheck:
+      test: ["CMD", "grpc_health_probe", "-addr=:50051"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    
+    # Limits de ressources
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+
+  # ============================================
+  # FRONTEND REACT - Application web
+  # ============================================
+  react-app:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        - NODE_ENV=production
+        - REACT_APP_GRPC_WEB_URL=http://localhost:8080
+    
+    container_name: react-frontend
+    
+    ports:
+      - "3000:80"  # Nginx serve le build React
+    
+    depends_on:
+      - envoy
+    
+    networks:
+      - grpc-network
+    
+    restart: unless-stopped
+    
+    # Limits
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+
+  # ============================================
+  # BASE DE DONNÉES PostgreSQL
+  # ============================================
+  postgres:
+    image: postgres:15-alpine
+    container_name: grpc-postgres
+    
+    environment:
+      - POSTGRES_DB=grpc_db
+      - POSTGRES_USER=grpc_user
+      - POSTGRES_PASSWORD=grpc_password
+      # Pour production, utiliser des secrets
+      # - POSTGRES_PASSWORD_FILE=/run/secrets/db_password
+    
+    ports:
+      - "5432:5432"  # Pour debug, retirer en production
+    
+    volumes:
+      # Persistence des données
+      - postgres-data:/var/lib/postgresql/data
+      # Scripts d'initialisation (optionnel)
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    
+    networks:
+      - grpc-network
+    
+    restart: unless-stopped
+    
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U grpc_user -d grpc_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    
+    # Sécurité
+    security_opt:
+      - no-new-privileges:true
+
+  # ============================================
+  # REDIS - Cache et sessions (optionnel)
+  # ============================================
+  redis:
+    image: redis:7-alpine
+    container_name: grpc-redis
+    
+    ports:
+      - "6379:6379"
+    
+    volumes:
+      - redis-data:/data
+    
+    command: redis-server --appendonly yes --requirepass redis_password
+    
+    networks:
+      - grpc-network
+    
+    restart: unless-stopped
+    
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  # ============================================
+  # PROMETHEUS - Métriques (optionnel)
+  # ============================================
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: grpc-prometheus
+    
+    ports:
+      - "9090:9090"
+    
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+    
+    networks:
+      - grpc-network
+    
+    restart: unless-stopped
+
+  # ============================================
+  # GRAFANA - Dashboards (optionnel)
+  # ============================================
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grpc-grafana
+    
+    ports:
+      - "3001:3000"
+    
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+    
+    depends_on:
+      - prometheus
+    
+    networks:
+      - grpc-network
+    
+    restart: unless-stopped
+
+# ============================================
+# RÉSEAUX
+# ============================================
+networks:
+  grpc-network:
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.20.0.0/16
+
+# ============================================
+# VOLUMES PERSISTANTS
+# ============================================
+volumes:
+  # Données PostgreSQL
+  postgres-data:
+    driver: local
+  
+  # Données Redis
+  redis-data:
+    driver: local
+  
+  # Logs Envoy
+  envoy-logs:
+    driver: local
+  
+  # Métriques Prometheus
+  prometheus-data:
+    driver: local
+  
+  # Dashboards Grafana
+  grafana-data:
+    driver: local
+
+# ============================================
+# SECRETS (Pour production)
+# ============================================
+# secrets:
+#   db_password:
+#     file: ./secrets/db_password.txt
+#   jwt_secret:
+#     file: ./secrets/jwt_secret.txt
+

@@ -1,0 +1,16 @@
+{
+  "name": "grpc-web-proto-generation",
+  "version": "1.0.0",
+  "description": "Scripts for generating gRPC-Web stubs",
+  "scripts": {
+    "generate:js": "./generate-js.sh",
+    "generate:ts": "./generate-ts.sh",
+    "generate": "npm run generate:ts"
+  },
+  "devDependencies": {
+    "google-protobuf": "^3.21.2",
+    "grpc-web": "^1.4.2",
+    "ts-protoc-gen": "^0.15.0",
+    "typescript": "^5.0.0"
+  }
+}

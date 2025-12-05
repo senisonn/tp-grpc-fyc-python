@@ -1,0 +1,98 @@
+# Configuration Envoy avec TLS uniquement
+# Focus sur la sécurité et le chiffrement
+
+static_resources:
+  listeners:
+  - name: tls_listener
+    address:
+      socket_address:
+        address: 0.0.0.0
+        port_value: 8443
+    
+    filter_chains:
+    - transport_socket:
+        name: envoy.transport_sockets.tls
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.DownstreamTlsContext
+          
+          common_tls_context:
+            tls_certificates:
+            - certificate_chain:
+                filename: "/etc/envoy/certs/server.crt"
+              private_key:
+                filename: "/etc/envoy/certs/server.key"
+            
+            tls_params:
+              tls_minimum_protocol_version: TLSv1_2
+              tls_maximum_protocol_version: TLSv1_3
+      
+      filters:
+      - name: envoy.filters.network.http_connection_manager
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+          
+          stat_prefix: grpc_web_tls
+          codec_type: AUTO
+          
+          http_filters:
+          - name: envoy.filters.http.grpc_web
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.grpc_web.v3.GrpcWeb
+          
+          - name: envoy.filters.http.cors
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.cors.v3.Cors
+          
+          - name: envoy.filters.http.router
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+          
+          route_config:
+            name: local_routes
+            virtual_hosts:
+            - name: grpc_services
+              domains: ["*"]
+              
+              cors:
+                allow_origin_string_match:
+                - safe_regex:
+                    regex: "https://.*"  # HTTPS seulement
+                allow_methods: "GET, POST, OPTIONS"
+                allow_headers: "content-type, x-grpc-web, grpc-timeout, authorization"
+                expose_headers: "grpc-status, grpc-message"
+                max_age: "3600"
+              
+              routes:
+              - match:
+                  prefix: "/"
+                  grpc: {}
+                route:
+                  cluster: grpc_backend
+                  timeout: 60s
+  
+  clusters:
+  - name: grpc_backend
+    type: STRICT_DNS
+    lb_policy: ROUND_ROBIN
+    
+    typed_extension_protocol_options:
+      envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
+        "@type": type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
+        explicit_http_config:
+          http2_protocol_options: {}
+    
+    load_assignment:
+      cluster_name: grpc_backend
+      endpoints:
+      - lb_endpoints:
+        - endpoint:
+            address:
+              socket_address:
+                address: grpc-server
+                port_value: 50051
+
+admin:
+  address:
+    socket_address:
+      address: 127.0.0.1
+      port_value: 9901
