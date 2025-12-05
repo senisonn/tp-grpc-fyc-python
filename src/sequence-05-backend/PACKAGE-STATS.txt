@@ -1,0 +1,10 @@
+=== Package Statistics ===
+Documentation pages:
+1266 02-server-setup/guide-python-server.md
+912 03-crud-service/guide-crud-complete.md
+
+Total files:
+40
+
+Python examples:
+10

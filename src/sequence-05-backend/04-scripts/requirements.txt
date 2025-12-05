@@ -1,0 +1,36 @@
+# Core gRPC dependencies
+grpcio==1.60.0
+grpcio-tools==1.60.0
+grpcio-reflection==1.60.0
+protobuf==4.25.1
+
+# Database drivers
+psycopg2-binary==2.9.9
+pymongo==4.6.1
+redis==5.0.1
+
+# Data validation
+pydantic==2.5.3
+email-validator==2.1.0
+
+# Authentication
+PyJWT==2.8.0
+bcrypt==4.1.2
+
+# Configuration
+python-dotenv==1.0.0
+pyyaml==6.0.1
+
+# Testing
+pytest==7.4.3
+pytest-asyncio==0.21.1
+pytest-cov==4.1.0
+pytest-mock==3.12.0
+
+# Utilities
+python-dateutil==2.8.2
+
+# Development
+black==23.12.1
+flake8==7.0.0
+mypy==1.7.1
