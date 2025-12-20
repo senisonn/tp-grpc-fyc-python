@@ -128,11 +128,3 @@ if (!data) return null;
 * ☐ Imports corrects (`from '../generated/...'`)
 * ☐ Dépendances installées (`npm list grpc-web`)
 * ☐ CORS configuré dans Envoy
-
----
-
-If you want, I can:
-
-* Convert this into a **Troubleshooting section** for your course
-* Align wording with previous activities
-* Add **links between errors ↔ fixes**
