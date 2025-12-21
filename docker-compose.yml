@@ -1,53 +1,47 @@
 version: '3.8'
 
 services:
-  envoy:
-    image: envoyproxy/envoy:v1.28-latest
+  logging-service:
+    build: 
+      context: ./logging-service
+      dockerfile: Dockerfile
+    container_name: grpc-logging
+    environment:
+      - SERVICE_PORT=50053
+      - API_KEY=logging-service-api-key-123
+      - LOG_DIRECTORY=/app/logs
+      - LOG_LEVEL=INFO
     ports:
-      - "8080:8080"
-      - "9901:9901"
+      - "50053:50053"
     volumes:
-      - ./envoy.yaml:/etc/envoy/envoy.yaml
+      - ./logging-service/logs:/app/logs
     networks:
       - grpc-network
-
-  gateway:
-    build: ./gateway-service
-    environment:
-      - JWT_SECRET=${JWT_SECRET}
-    depends_on:
-      - auth-service
-      - chat-service
-    networks:
-      - grpc-network
-
-  auth-service:
-    build: ./auth-service
-    environment:
-      - JWT_SECRET=${JWT_SECRET}
-      - API_KEY=${AUTH_API_KEY}
-    networks:
-      - grpc-network
+    restart: unless-stopped
 
   chat-service:
-    build: ./chat-service
+    build:
+      context: ./chat-service
+      dockerfile: Dockerfile
+    container_name: grpc-chat
     environment:
-      - API_KEY=${CHAT_API_KEY}
-      - LOGGING_SERVICE_API_KEY=${LOGGING_API_KEY}
+      - SERVICE_PORT=50052
+      - API_KEY=chat-service-api-key-456
+      - LOGGING_SERVICE_HOST=logging-service
+      - LOGGING_SERVICE_PORT=50053
+      - LOGGING_API_KEY=logging-service-api-key-123
+      - MAX_ROOM_MEMBERS=100
+      - MAX_MESSAGE_LENGTH=1000
+      - MESSAGE_HISTORY_LIMIT=100
+      - LOG_LEVEL=INFO
+    ports:
+      - "50052:50052"
+    networks:
+      - grpc-network
     depends_on:
       - logging-service
-    networks:
-      - grpc-network
+    restart: unless-stopped
 
-  logging-service:
-    build: ./logging-service
-    environment:
-      - API_KEY=${LOGGING_API_KEY}
-    volumes:
-      - logs-data:/app/logs
-    networks:
-      - grpc-network
-      
 networks:
   grpc-network:
     driver: bridge
