@@ -1,9 +1,10 @@
 import grpc
-from proto import chat_pb2, chat_pb2_grpc, common_pb2
-from src.models.room import RoomStore
-from src.models.message import MessageStore
-from src.utils.room_manager import RoomManager
-from src.clients.logging_client import LoggingClient
+import proto.chat_pb2 as chat_pb2
+import proto.chat_pb2_grpc as chat_pb2_grpc
+import proto.common_pb2 as common_pb2
+from src.models import RoomStore, MessageStore
+from src.utils import RoomManager
+from src.clients import LoggingClient
 from src.config import config
 import queue
 import threading

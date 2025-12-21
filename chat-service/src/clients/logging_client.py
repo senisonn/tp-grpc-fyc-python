@@ -1,5 +1,6 @@
 import grpc
-from proto import logging_pb2, logging_pb2_grpc
+import proto.logging_pb2_grpc as logging_pb2_grpc
+import proto.logging_pb2 as logging_pb2
 from src.config import config
 import uuid
 import time

@@ -6,7 +6,7 @@ import os
 # Ajouter le répertoire racine au PYTHONPATH
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from proto import chat_pb2_grpc
+import proto.chat_pb2_grpc as chat_pb2_grpc
 from src.services.chat_service import ChatServiceServicer
 from src.interceptors.api_key_interceptor import APIKeyInterceptor
 from src.config import config

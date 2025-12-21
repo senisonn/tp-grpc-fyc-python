@@ -1,9 +1,11 @@
 import grpc
-from proto import logging_pb2, logging_pb2_grpc, common_pb2
-from storage.file_storage import FileStorage
-from storage.metric_aggregator import MetricsAggregator
-from utils.log_formatter import LogFormatter
-from config import config
+import proto.logging_pb2 as logging_pb2
+import proto.logging_pb2_grpc as logging_pb2_grpc
+import proto.common_pb2 as common_pb2
+from src.storage import FileStorage
+from src.storage import MetricsAggregator
+from src.utils import LogFormatter
+from src.config import config
 import time
 
 class LoggingServiceServicer(logging_pb2_grpc.LoggingServiceServicer):
