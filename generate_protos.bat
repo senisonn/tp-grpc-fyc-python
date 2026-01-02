@@ -36,6 +36,7 @@ python -m grpc_tools.protoc -I%PROTO_DIR% ^
     --python_out=auth-service/proto ^
     --grpc_python_out=auth-service/proto ^
     %PROTO_DIR%/auth.proto ^
+    %PROTO_DIR%/logging.proto ^
     %PROTO_DIR%/common.proto
 
 if %ERRORLEVEL% NEQ 0 (

@@ -10,4 +10,4 @@ COPY src ./src
 
 EXPOSE 50050
 
-CMD ["python", "-m", "src.server"]
+CMD ["python", "-m", "src.app"]

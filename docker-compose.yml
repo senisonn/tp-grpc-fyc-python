@@ -1,10 +1,9 @@
-version: '3.8'
-
 services:
+  # ===================================
+  # Logging Service (gRPC) - Port 50053
+  # ===================================
   logging-service:
-    build: 
-      context: ./logging-service
-      dockerfile: Dockerfile
+    build: ./logging-service
     container_name: grpc-logging
     environment:
       - SERVICE_PORT=50053
@@ -18,11 +17,18 @@ services:
     networks:
       - grpc-network
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('localhost', 50053), timeout=2)"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
+  # ===================================
+  # Chat Service (gRPC) - Port 50052
+  # ===================================
   chat-service:
-    build:
-      context: ./chat-service
-      dockerfile: Dockerfile
+    build: ./chat-service
     container_name: grpc-chat
     environment:
       - SERVICE_PORT=50052
@@ -39,8 +45,74 @@ services:
     networks:
       - grpc-network
     depends_on:
-      - logging-service
+      logging-service:
+        condition: service_healthy
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('localhost', 50052), timeout=2)"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # ===================================
+  # Auth Service (Flask) - Port 5001
+  # ===================================
+  auth-service:
+    build: ./auth-service
+    container_name: flask-auth
+    environment:
+      - FLASK_PORT=5001
+      - JWT_SECRET=your-super-secret-jwt-key-change-in-production
+      - JWT_EXPIRATION=3600
+      - SECRET_KEY=auth-secret-key-change-me
+      - LOGGING_SERVICE_HOST=logging-service
+      - LOGGING_SERVICE_PORT=50053
+      - LOGGING_API_KEY=logging-service-api-key-123
+      - FLASK_ENV=development
+    ports:
+      - "5001:5001"
+    networks:
+      - grpc-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # ===================================
+  # Gateway (Flask) - Port 5000
+  # ===================================
+  gateway:
+    build: ./gateway-service
+    container_name: flask-gateway
+    environment:
+      - FLASK_PORT=5000
+      - AUTH_SERVICE_URL=http://auth-service:5001
+      - CHAT_SERVICE_HOST=chat-service
+      - CHAT_SERVICE_PORT=50052
+      - CHAT_API_KEY=chat-service-api-key-456
+      - JWT_SECRET=your-super-secret-jwt-key-change-in-production
+      - SECRET_KEY=gateway-secret-key-change-me
+      - FLASK_ENV=development
+    ports:
+      - "5000:5000"
+    networks:
+      - grpc-network
+    depends_on:
+      auth-service:
+        condition: service_healthy
+      chat-service:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
 
 networks:
   grpc-network:
