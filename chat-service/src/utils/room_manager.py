@@ -38,24 +38,25 @@ class RoomManager:
         """Diffuser un message à tous les membres actifs d'une room"""
         with self.lock:
             if room_id not in self.active_streams:
-                print(f"⚠️ Broadcast impossible: room {room_id} non trouvée dans active_streams")
-                print(f"   Rooms disponibles: {list(self.active_streams.keys())}")
+                print(f"⚠️ Broadcast impossible: room {room_id} non trouvée")
                 return
             
             streams = self.active_streams[room_id]
             print(f"📣 Broadcasting à {len(streams)} stream(s) dans room {room_id}")
+            print(f"   🆔 Message ID: {message.id}")
             
             success_count = 0
             for uid, msg_queue in streams.items():
                 try:
+                    print(f"   📥 AVANT queue.put() pour user {uid}") 
                     msg_queue.put(message)
+                    print(f"   ✅ APRÈS queue.put() pour user {uid}")
                     success_count += 1
-                    print(f"   ✅ Message envoyé à user {uid}")
                 except Exception as e:
-                    print(f"   ❌ Erreur envoi à user {uid}: {str(e)}")
+                    print(f"   ❌ Erreur: {e}")
             
             print(f"📊 Broadcast terminé: {success_count}/{len(streams)} succès")
-    
+
     def get_active_users(self, room_id: str) -> Set[str]:
         """Obtenir les utilisateurs actifs dans une room"""
         with self.lock:

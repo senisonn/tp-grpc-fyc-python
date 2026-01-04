@@ -231,14 +231,21 @@ def start_grpc_stream(session_id, room_id, user_info):
             
     # Thread de réception (messages entrants)
     def receive_messages():
+        message_count = {}  # ← AJOUTE
         try:
             print(f"🚀 Démarrage du stream gRPC pour {user_info['username']}")
             response_iterator = chat_stub.StreamMessages(
                 message_generator(),
                 metadata=metadata
             )
-
             for message in response_iterator:
+                # ← AJOUTE CE BLOC
+                if message.id not in message_count:
+                    message_count[message.id] = 0
+                message_count[message.id] += 1
+                print(f"[{user_info['username']}] 🔍 MESSAGE #{message_count[message.id]} - id={message.id}, content={message.content[:20]}")
+                # FIN DU BLOC
+                
                 if not stream_info['running']:
                     break
 
@@ -257,11 +264,7 @@ def start_grpc_stream(session_id, room_id, user_info):
 
                 # ✅✅✅ SOLUTION FINALE : Émettre à la room SocketIO ✅✅✅
                 print(f"📡 Émission vers room SocketIO: {room_id}")
-                socketio.emit(
-                    'new_message',
-                    message_data,
-                    room=room_id
-                )
+                socketio.emit('new_message', message_data, to=session_id)
 
                 print(f"📩 Message émis à room {room_id}: [{message_type}] {message.username}: {message.content[:50]}")
 

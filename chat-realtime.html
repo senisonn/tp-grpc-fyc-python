@@ -217,15 +217,19 @@
                 console.log('✅ Authentifié:', data.user);
             });
 
+            // ✅ FIX: Retirer les anciens listeners avant d'ajouter les nouveaux
+            socket.off('new_message');
             socket.on('new_message', (message) => {
                 console.log('🔔 new_message reçu:', message);
                 displayMessage(message);
             });
 
+            socket.off('joined_chat');
             socket.on('joined_chat', (data) => {
                 console.log('✅ Rejoint:', data.room_id);
             });
 
+            socket.off('error');
             socket.on('error', (data) => {
                 alert('Erreur: ' + data.message);
             });
