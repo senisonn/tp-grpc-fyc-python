@@ -5,14 +5,13 @@
 À la fin de ce TP, vous serez capable de :
 - Concevoir et implémenter une architecture microservices avec gRPC
 - Gérer des communications bidirectionnelles en temps réel (WebSocket + gRPC streaming)
+- Résoudre les problèmes d'incompatibilité entre threading et async_mode
 - Mettre en place un système de logging centralisé
 - Déployer une application multi-services avec Docker Compose
 - Implémenter un système d'authentification JWT
 - Gérer des rooms de chat avec broadcast de messages
 
-## 📋 Cahier des Charges
-
-### 1. Vue d'Ensemble du Projet
+## 📋 Vue d'Ensemble du Projet
 
 **Système** : Application de chat en temps réel multi-utilisateurs avec rooms
 
@@ -29,7 +28,7 @@
 
 ## 🏗️ Architecture du Système
 
-### 1.1 Diagramme d'Architecture
+### Diagramme d'Architecture
 
 ```mermaid
 graph TB
@@ -80,174 +79,14 @@ graph TB
     style Logging fill:#4299e1,stroke:#333,stroke-width:2px,color:#fff
 ```
 
-### 1.2 Services et Responsabilités
-
-```mermaid
-graph LR
-    subgraph GW[Gateway Service - Port 5000]
-        direction TB
-        GW1[Flask REST API]
-        GW2[Flask-SocketIO]
-        GW3[gRPC Clients]
-    end
-
-    subgraph AS[Auth Service - Port 5001]
-        direction TB
-        AS1[JWT Generation]
-        AS2[Token Validation]
-        AS3[User Management]
-    end
-
-    subgraph CS[Chat Service - Port 50052]
-        direction TB
-        CS1[Room CRUD]
-        CS2[Streaming gRPC]
-        CS3[RoomManager Broadcast]
-        CS4[Message History]
-    end
-
-    subgraph LS[Logging Service - Port 50053]
-        direction TB
-        LS1[Log Collection]
-        LS2[File Storage]
-        LS3[Metrics]
-    end
-
-    GW1 -.->|REST| AS1
-    GW3 -.->|gRPC| CS2
-    AS3 -.->|gRPC| LS1
-    CS3 -.->|gRPC| LS1
-
-    style GW fill:#48bb78,stroke:#333,stroke-width:3px,color:#fff
-    style AS fill:#ed8936,stroke:#333,stroke-width:3px,color:#fff
-    style CS fill:#9f7aea,stroke:#333,stroke-width:3px,color:#fff
-    style LS fill:#4299e1,stroke:#333,stroke-width:3px,color:#fff
-```
-
-### 1.3 Flux de Messages en Temps Réel
-
-```mermaid
-sequenceDiagram
-    participant F as Frontend
-    participant G as Gateway<br/>(WebSocket)
-    participant C as Chat Service<br/>(gRPC Stream)
-    participant R as RoomManager
-
-    Note over F,R: 🔵 Phase 1: Connexion et Join
-
-    F->>G: WebSocket Connect
-    G-->>F: connected event
-    
-    F->>G: authenticate {token}
-    G-->>F: authenticated {user}
-    
-    F->>G: join_chat {room_id, user}
-    G->>C: gRPC JoinRoom(room_id, user)
-    C->>R: add_stream(room_id, user_id, queue)
-    Note over R: Enregistre le stream<br/>pour broadcast
-    C-->>G: JoinRoomResponse
-    G-->>F: joined_chat event
-    
-    Note over F,R: 🟢 Phase 2: Stream Bidirectionnel Actif
-
-    G->>C: StreamMessages() - Streaming Start
-    Note over G,C: Connexion persistante<br/>bidirectionnelle
-    
-    Note over F,R: 📤 Phase 3: Envoi de Message
-
-    F->>G: send_message {content: "Hello"}
-    G->>G: message_queue.put(message)
-    G->>C: yield message via generator
-    
-    C->>C: message_store.add_message()
-    C->>R: broadcast_to_room(room_id, message)
-    
-    Note over R: Broadcast à TOUS<br/>les streams de la room
-    
-    R->>C: queue.put(message) x N users
-    
-    Note over F,R: 📥 Phase 4: Réception de Message
-
-    C-->>G: yield message (User A)
-    C-->>G: yield message (User B)
-    
-    G->>F: socketio.emit('new_message') - User A
-    G->>F: socketio.emit('new_message') - User B
-    
-    F->>F: displayMessage(message)
-    
-    Note over F,R: 🔴 Phase 5: Déconnexion
-
-    F->>G: leave_chat
-    G->>C: LeaveRoom(room_id, user_id)
-    C->>R: remove_stream(room_id, user_id)
-    G->>G: Stop generator (STOP signal)
-    C-->>G: Stream closed
-```
-
-### 1.4 Architecture WebSocket + gRPC Streaming
-
-```mermaid
-graph TB
-    subgraph Client_A["👤 Client A"]
-        WS_A[WebSocket]
-        UI_A[Chat UI]
-    end
-
-    subgraph Client_B["👤 Client B"]
-        WS_B[WebSocket]
-        UI_B[Chat UI]
-    end
-
-    subgraph Gateway["🚪 Gateway"]
-        WS_Handler[WebSocket Handler]
-        Stream_A[gRPC Stream A]
-        Stream_B[gRPC Stream B]
-        Queue_A[Message Queue A]
-        Queue_B[Message Queue B]
-    end
-
-    subgraph Chat_Service["💬 Chat Service"]
-        StreamMsgs[StreamMessages RPC]
-        RoomMgr[RoomManager]
-        MsgStore[MessageStore]
-        
-        subgraph Room["Room: room-123"]
-            Stream_Queue_A[Queue A]
-            Stream_Queue_B[Queue B]
-        end
-    end
-
-    WS_A <-->|bidirectional| WS_Handler
-    WS_B <-->|bidirectional| WS_Handler
-    
-    WS_Handler <-->|gRPC Stream| Stream_A
-    WS_Handler <-->|gRPC Stream| Stream_B
-    
-    Stream_A <-->|bidirectional| StreamMsgs
-    Stream_B <-->|bidirectional| StreamMsgs
-    
-    StreamMsgs -->|add_stream| RoomMgr
-    StreamMsgs -->|save| MsgStore
-    
-    RoomMgr -->|broadcast| Stream_Queue_A
-    RoomMgr -->|broadcast| Stream_Queue_B
-    
-    Stream_Queue_A -.->|yield| Stream_A
-    Stream_Queue_B -.->|yield| Stream_B
-
-    style Client_A fill:#667eea,stroke:#333,stroke-width:2px,color:#fff
-    style Client_B fill:#667eea,stroke:#333,stroke-width:2px,color:#fff
-    style Gateway fill:#48bb78,stroke:#333,stroke-width:2px,color:#fff
-    style Chat_Service fill:#9f7aea,stroke:#333,stroke-width:2px,color:#fff
-    style Room fill:#fc8181,stroke:#333,stroke-width:2px,color:#fff
-```
+### Services et Responsabilités
 
 #### **Gateway Service** (Port 5000)
 - Point d'entrée unique pour le frontend
 - Gestion des WebSocket pour le temps réel
 - Proxy REST vers les autres services
 - Communication gRPC avec Auth et Chat services
+- **⚠️ IMPORTANT : Utilise `async_mode='threading'` pour Flask-SocketIO**
 
 #### **Auth Service** (Port 5001)
 - Authentification des utilisateurs
@@ -270,548 +109,121 @@ graph TB
 
 ---
 
-## 📦 Spécifications Techniques Détaillées
+## 📦 Structure du Projet
 
-### 2. Proto Definitions (Protocol Buffers)
-
-#### 2.1 `common.proto`
-```protobuf
-syntax = "proto3";
-
-package common;
-
-message Status {
-    bool success = 1;
-    string message = 2;
-    int32 code = 3;
-}
-
-message Empty {}
 ```
-
-#### 2.2 `auth.proto`
-```protobuf
-syntax = "proto3";
-
-package auth;
-
-import "common.proto";
-
-message User {
-    string user_id = 1;
-    string username = 2;
-    string email = 3;
-    int64 created_at = 4;
-}
-
-message LoginRequest {
-    string username = 1;
-    string password = 2;
-}
-
-message LoginResponse {
-    bool success = 1;
-    string token = 2;
-    User user = 3;
-    string message = 4;
-}
-
-message ValidateTokenRequest {
-    string token = 1;
-}
-
-message ValidateTokenResponse {
-    bool valid = 1;
-    User user = 2;
-}
-```
-
-#### 2.3 `chat.proto`
-```protobuf
-syntax = "proto3";
-
-package chat;
-
-import "common.proto";
-
-enum MessageType {
-    TEXT = 0;
-    SYSTEM = 1;
-    JOIN = 2;
-    LEAVE = 3;
-}
-
-message Room {
-    string id = 1;
-    string name = 2;
-    string description = 3;
-    string created_by = 4;
-    int64 created_at = 5;
-    int32 member_count = 6;
-}
-
-message ChatMessage {
-    string id = 1;
-    string room_id = 2;
-    string user_id = 3;
-    string username = 4;
-    string content = 5;
-    int64 timestamp = 6;
-    MessageType type = 7;
-}
-
-message CreateRoomRequest {
-    string name = 1;
-    string description = 2;
-    string created_by = 3;
-}
-
-message ListRoomsRequest {}
-
-message ListRoomsResponse {
-    repeated Room rooms = 1;
-    int32 total = 2;
-}
-
-message JoinRoomRequest {
-    string room_id = 1;
-    string user_id = 2;
-    string username = 3;
-}
-
-message JoinRoomResponse {
-    bool success = 1;
-    string message = 2;
-    Room room = 3;
-}
-
-message LeaveRoomRequest {
-    string room_id = 1;
-    string user_id = 2;
-}
-
-message GetRoomHistoryRequest {
-    string room_id = 1;
-    int32 limit = 2;
-}
-
-message RoomMember {
-    string user_id = 1;
-    string username = 2;
-    int64 joined_at = 3;
-}
-
-message RoomMembersResponse {
-    repeated RoomMember members = 1;
-}
-
-service ChatService {
-    rpc CreateRoom(CreateRoomRequest) returns (Room);
-    rpc ListRooms(ListRoomsRequest) returns (ListRoomsResponse);
-    rpc JoinRoom(JoinRoomRequest) returns (JoinRoomResponse);
-    rpc LeaveRoom(LeaveRoomRequest) returns (common.Status);
-    
-    // Streaming bidirectionnel pour les messages temps réel
-    rpc StreamMessages(stream ChatMessage) returns (stream ChatMessage);
-    
-    // Récupérer l'historique (streaming serveur)
-    rpc GetRoomHistory(GetRoomHistoryRequest) returns (stream ChatMessage);
-    
-    rpc GetRoomMembers(GetRoomHistoryRequest) returns (RoomMembersResponse);
-}
-```
-
-#### 2.4 `logging.proto`
-```protobuf
-syntax = "proto3";
-
-package logging;
-
-import "common.proto";
-
-enum LogLevel {
-    DEBUG = 0;
-    INFO = 1;
-    WARNING = 2;
-    ERROR = 3;
-    CRITICAL = 4;
-}
-
-message LogEntry {
-    string service = 1;
-    LogLevel level = 2;
-    string message = 3;
-    int64 timestamp = 4;
-    map<string, string> metadata = 5;
-    string trace_id = 6;
-}
-
-message LogRequest {
-    LogEntry entry = 1;
-}
-
-message LogResponse {
-    bool success = 1;
-}
-
-service LoggingService {
-    rpc Log(LogRequest) returns (LogResponse);
-}
+tp-protocol-buffers-et-serialisation/
+├── docker-compose.yml
+├── README.md
+├── proto/
+│   ├── common.proto
+│   ├── auth.proto
+│   ├── chat.proto
+│   └── logging.proto
+├── gateway-service/
+│   ├── Dockerfile
+│   ├── requirements.txt
+│   ├── .env
+│   ├── proto/
+│   └── src/
+│       ├── app.py
+│       ├── config.py
+│       ├── websocket_handler.py
+│       └── clients/
+├── auth-service/
+│   ├── Dockerfile
+│   ├── requirements.txt
+│   ├── .env
+│   ├── proto/
+│   └── src/
+│       ├── app.py
+│       ├── config.py
+│       └── models/
+├── chat-service/
+│   ├── Dockerfile
+│   ├── requirements.txt
+│   ├── .env
+│   ├── proto/
+│   └── src/
+│       ├── server.py
+│       ├── config.py
+│       ├── services/
+│       │   └── chat_service.py
+│       └── utils/
+│           └── room_manager.py
+├── logging-service/
+│   ├── Dockerfile
+│   ├── requirements.txt
+│   ├── .env
+│   ├── proto/
+│   ├── logs/
+│   └── src/
+│       ├── server.py
+│       └── services/
+└── frontend/
+    └── chat-realtime.html
 ```
 
 ---
 
-## 🛠️ Implémentation par Service
+## 🚀 Installation et Démarrage
 
-### 3. Auth Service
+### Prérequis
 
-#### 3.1 Structure des Fichiers
-```
-auth-service/
-├── Dockerfile
-├── requirements.txt
-├── .env
-├── proto/
-│   ├── auth_pb2.py
-│   ├── auth_pb2_grpc.py
-│   ├── common_pb2.py
-│   └── logging_pb2.py
-└── src/
-    ├── app.py                 # Application Flask principale
-    ├── config.py              # Configuration
-    ├── models/
-    │   └── user.py            # Modèle User en mémoire
-    ├── utils/
-    │   └── jwt_helper.py      # Fonctions JWT
-    └── clients/
-        └── logging_client.py  # Client gRPC vers Logging
+- Docker et Docker Compose installés
+- Ports disponibles : 5000, 5001, 50052, 50053
+
+### Démarrage
+
+```bash
+# Cloner le projet
+git clone <votre-repo>
+cd tp-protocol-buffers-et-serialisation
+
+# Générer les fichiers proto (si nécessaire)
+# Voir section "Génération des fichiers Proto"
+
+# Démarrer tous les services
+docker-compose up --build
+
+# Ou en mode détaché
+docker-compose up -d --build
 ```
 
-#### 3.2 Fonctionnalités Requises
+### Vérification
 
-**Flux d'Authentification** :
+```bash
+# Voir les logs
+docker-compose logs -f
 
-```mermaid
-sequenceDiagram
-    participant U as User
-    participant F as Frontend
-    participant G as Gateway
-    participant A as Auth Service
-    participant L as Logging
+# Vérifier que tous les services sont UP
+docker-compose ps
 
-    Note over U,L: Phase 1: Login
-    
-    U->>F: Entrer username/password
-    F->>G: POST /auth/login
-    G->>A: Valider credentials
-    A->>A: Vérifier mot de passe (bcrypt)
-    
-    alt ✅ Valid
-        A->>A: Générer JWT Token
-        A->>L: Log success
-        A-->>G: {token, user}
-        G-->>F: {token, user}
-        F->>F: Stocker token
-        F-->>U: Redirection vers rooms
-    else ❌ Invalid
-        A->>L: Log failed attempt
-        A-->>G: {error: "Invalid credentials"}
-        G-->>F: Error
-        F-->>U: Afficher erreur
-    end
-    
-    Note over U,L: Phase 2: Validation Token
-    
-    F->>G: WebSocket authenticate {token}
-    G->>A: POST /auth/validate {token}
-    A->>A: Vérifier signature JWT
-    A->>A: Vérifier expiration
-    
-    alt ✅ Valid
-        A-->>G: {valid: true, user}
-        G-->>F: authenticated {user}
-    else ❌ Invalid/Expired
-        A-->>G: {valid: false}
-        G-->>F: error
-        F->>F: Déconnecter et retour login
-    end
+# Devrait afficher :
+# flask-gateway    running   0.0.0.0:5000->5000/tcp
+# flask-auth       running   0.0.0.0:5001->5001/tcp
+# grpc-chat        running   0.0.0.0:50052->50052/tcp
+# grpc-logging     running   0.0.0.0:50053->50053/tcp
 ```
 
-**Endpoints REST** :
-- `POST /auth/register` : Créer un utilisateur
-- `POST /auth/login` : Se connecter et obtenir un JWT
-- `POST /auth/validate` : Valider un token JWT
+### Accès à l'Application
 
-**Stockage** :
-- Utilisateurs stockés en mémoire (dictionnaire Python)
-- Mots de passe hashés avec bcrypt
-- Tokens JWT avec expiration (1h par défaut)
+1. Ouvrir le navigateur : `http://localhost:5000/chat-realtime.html`
+2. Se connecter avec les credentials par défaut :
+   - **Username** : `admin`
+   - **Password** : `admin123`
 
-**Users par défaut** :
-```python
-{
-    "admin": {"password": "admin123", "email": "admin@test.com"},
-    "user1": {"password": "password1", "email": "user1@test.com"},
-    "user2": {"password": "password2", "email": "user2@test.com"}
-}
-```
-
-#### 3.3 Configuration (`.env`)
-```env
-FLASK_PORT=5001
-JWT_SECRET=your-super-secret-jwt-key-change-in-production
-JWT_EXPIRATION=3600
-LOGGING_SERVICE_HOST=logging-service
-LOGGING_SERVICE_PORT=50053
-LOGGING_API_KEY=logging-service-api-key-123
-```
+   Autres utilisateurs disponibles :
+   - `user1` / `password1`
+   - `user2` / `password2`
 
 ---
 
-### 4. Chat Service
+## 🔧 Configuration
 
-#### 4.1 Structure des Fichiers
-```
-chat-service/
-├── Dockerfile
-├── requirements.txt
-├── .env
-├── proto/
-│   ├── chat_pb2.py
-│   ├── chat_pb2_grpc.py
-│   ├── common_pb2.py
-│   └── logging_pb2.py
-└── src/
-    ├── server.py              # Serveur gRPC
-    ├── config.py
-    ├── models/
-    │   ├── room.py            # Modèle Room
-    │   └── message.py         # Modèle Message
-    ├── services/
-    │   └── chat_service.py    # Implémentation ChatService
-    ├── utils/
-    │   └── room_manager.py    # Gestion du broadcast
-    ├── clients/
-    │   └── logging_client.py
-    └── interceptors/
-        └── api_key_interceptor.py  # Sécurité gRPC
-```
+### Variables d'Environnement
 
-#### 4.2 Fonctionnalités Requises
-
-**gRPC Methods** :
-- `CreateRoom` : Créer une room de chat
-- `ListRooms` : Lister toutes les rooms
-- `JoinRoom` : Rejoindre une room
-- `LeaveRoom` : Quitter une room
-- `StreamMessages` : **Streaming bidirectionnel** pour messages temps réel
-- `GetRoomHistory` : Récupérer historique (streaming serveur)
-- `GetRoomMembers` : Liste des membres d'une room
-
-**RoomManager** (CRITIQUE) :
-```python
-class RoomManager:
-    def __init__(self):
-        self.active_streams = {}  # {room_id: {user_id: queue}}
-    
-    def add_stream(self, room_id, user_id, message_queue):
-        """Enregistrer un stream pour recevoir les messages"""
-        
-    def remove_stream(self, room_id, user_id):
-        """Retirer un stream"""
-        
-    def broadcast_to_room(self, room_id, message):
-        """Envoyer un message à tous les streams de la room"""
-        for user_id, queue in self.active_streams[room_id].items():
-            queue.put(message)
-```
-
-**Diagramme d'État du RoomManager** :
-
-```mermaid
-stateDiagram-v2
-    [*] --> Empty: RoomManager créé
-    
-    Empty --> HasStreams: add_stream(room_1, user_a, queue_a)
-    
-    state HasStreams {
-        [*] --> Room1
-        
-        state Room1 {
-            [*] --> Stream_A: user_a joint
-            Stream_A --> Stream_AB: user_b joint
-            Stream_AB --> Stream_A: user_b quitte
-            Stream_A --> [*]: user_a quitte
-        }
-        
-        Room1 --> Room12: add_stream(room_2, ...)
-        
-        state Room12 {
-            Room1_Active
-            Room2_Active
-        }
-    }
-    
-    HasStreams --> Empty: Toutes les rooms vides
-    
-    note right of HasStreams
-        active_streams = {
-            "room_1": {
-                "user_a": queue_a,
-                "user_b": queue_b
-            },
-            "room_2": {
-                "user_c": queue_c
-            }
-        }
-    end note
-```
-
-**Flux de Broadcast** :
-
-```mermaid
-flowchart TB
-    Start([Message reçu]) --> Check{room_id exists<br/>in active_streams?}
-    
-    Check -->|Non| Error[⚠️ Room non trouvée<br/>Broadcast échoue]
-    Check -->|Oui| GetStreams[Récupérer tous les streams<br/>de la room]
-    
-    GetStreams --> Loop{Pour chaque<br/>user_id, queue}
-    
-    Loop -->|Parcourir| Put[queue.put(message)]
-    Put --> Loop
-    
-    Loop -->|Terminé| Success[✅ Message broadcasté<br/>à N utilisateurs]
-    
-    Error --> End([Fin])
-    Success --> End
-    
-    style Start fill:#48bb78,stroke:#333,color:#fff
-    style Check fill:#4299e1,stroke:#333,color:#fff
-    style Error fill:#fc8181,stroke:#333,color:#fff
-    style Success fill:#68d391,stroke:#333,color:#fff
-    style End fill:#a0aec0,stroke:#333,color:#fff
-```
-
-**StreamMessages - Implémentation** :
-```python
-def StreamMessages(self, request_iterator, context):
-    message_queue = queue.Queue()
-    room_id = user_id = username = None
-    stream_registered = False
-
-    def read_client_messages():
-        nonlocal room_id, user_id, username, stream_registered
-        for msg in request_iterator:
-            if msg.type == JOIN:
-                room_id = msg.room_id
-                user_id = msg.user_id
-                username = msg.username
-                # CRITIQUE : Enregistrer IMMÉDIATEMENT
-                self.room_manager.add_stream(room_id, user_id, message_queue)
-                stream_registered = True
-            
-            elif msg.type == TEXT:
-                if not stream_registered:
-                    continue
-                # Sauvegarder en base
-                saved_message = self.message_store.add_message(...)
-                # Broadcaster
-                self.room_manager.broadcast_to_room(room_id, saved_message)
-
-    threading.Thread(target=read_client_messages, daemon=True).start()
-
-    # Boucle d'envoi
-    while not stop_event.is_set():
-        try:
-            msg = message_queue.get(timeout=1)
-            yield msg
-        except queue.Empty:
-            continue
-```
-
-#### 4.3 Configuration
-```env
-SERVICE_PORT=50052
-API_KEY=chat-service-api-key-456
-LOGGING_SERVICE_HOST=logging-service
-LOGGING_SERVICE_PORT=50053
-MAX_ROOM_MEMBERS=100
-MAX_MESSAGE_LENGTH=1000
-MESSAGE_HISTORY_LIMIT=100
-```
-
----
-
-### 5. Gateway Service
-
-#### 5.1 Structure des Fichiers
-```
-gateway-service/
-├── Dockerfile
-├── requirements.txt
-├── .env
-├── proto/
-│   ├── auth_pb2.py
-│   ├── chat_pb2.py
-│   └── common_pb2.py
-└── src/
-    ├── app.py                    # Flask app + REST routes
-    ├── config.py
-    ├── websocket_handler.py      # Gestion WebSocket + gRPC streaming
-    └── clients/
-        ├── auth_client.py        # Client gRPC vers Auth
-        └── chat_client.py        # Client gRPC vers Chat
-```
-
-#### 5.2 Fonctionnalités Requises
-
-**REST API** :
-- `POST /auth/login` → Proxy vers Auth Service
-- `POST /auth/register` → Proxy vers Auth Service
-- `GET /api/rooms` → Appel gRPC Chat.ListRooms
-- `POST /api/rooms` → Appel gRPC Chat.CreateRoom
-- `POST /api/rooms/:id/join` → Appel gRPC Chat.JoinRoom
-- `GET /api/rooms/:id/history` → Streaming gRPC Chat.GetRoomHistory
-
-**WebSocket Events** :
-- `connect` : Connexion WebSocket
-- `authenticate` : Valider le JWT
-- `join_chat` : Rejoindre une room (démarre le stream gRPC)
-- `send_message` : Envoyer un message
-- `leave_chat` : Quitter la room
-- `new_message` : (EMIT) Nouveau message reçu
-
-**WebSocket Handler - Architecture Critique** :
-
-```python
-def start_grpc_stream(session_id, room_id, user_info):
-    """
-    Démarrer streaming bidirectionnel gRPC
-    IMPORTANT : Utiliser socketio.start_background_task au lieu de threading.Thread
-    """
-    message_queue = Queue()
-    
-    def message_generator():
-        # Message JOIN initial
-        yield ChatMessage(type=JOIN, ...)
-        
-        while running:
-            message = message_queue.get(timeout=0.5)
-            if message is STOP:
-                return
-            yield message
-    
-    def receive_messages():
-        # CRUCIAL : Exécuté en background task SocketIO
-        for message in chat_stub.StreamMessages(message_generator()):
-            socketio.emit('new_message', message_data, room=room_id)
-    
-    # ✅ Utiliser socketio.start_background_task (pas threading.Thread)
-    socketio.start_background_task(receive_messages)
-```
-
-#### 5.3 Configuration
+#### Gateway Service (`.env`)
 ```env
 FLASK_PORT=5000
 AUTH_SERVICE_URL=http://auth-service:5001
@@ -819,351 +231,523 @@ CHAT_SERVICE_HOST=chat-service
 CHAT_SERVICE_PORT=50052
 CHAT_API_KEY=chat-service-api-key-456
 JWT_SECRET=your-super-secret-jwt-key-change-in-production
+SECRET_KEY=gateway-secret-key-change-me
+```
+
+#### Auth Service (`.env`)
+```env
+FLASK_PORT=5001
+JWT_SECRET=your-super-secret-jwt-key-change-in-production
+JWT_EXPIRATION=3600
+SECRET_KEY=auth-secret-key-change-me
+LOGGING_SERVICE_HOST=logging-service
+LOGGING_SERVICE_PORT=50053
+LOGGING_API_KEY=logging-service-api-key-123
+```
+
+#### Chat Service (`.env`)
+```env
+SERVICE_PORT=50052
+API_KEY=chat-service-api-key-456
+LOGGING_SERVICE_HOST=logging-service
+LOGGING_SERVICE_PORT=50053
+LOGGING_API_KEY=logging-service-api-key-123
+MAX_ROOM_MEMBERS=100
+MAX_MESSAGE_LENGTH=1000
+MESSAGE_HISTORY_LIMIT=100
+```
+
+#### Logging Service (`.env`)
+```env
+SERVICE_PORT=50053
+API_KEY=logging-service-api-key-123
+LOG_DIRECTORY=/app/logs
+LOG_LEVEL=INFO
 ```
 
 ---
 
-### 6. Logging Service
+## 🛠️ Fonctionnalités
 
-#### 6.1 Structure
-```
-logging-service/
-├── Dockerfile
-├── requirements.txt
-├── .env
-├── logs/                      # Fichiers de logs
-└── src/
-    ├── server.py
-    ├── services/
-    │   └── logging_service.py
-    ├── storage/
-    │   ├── file_storage.py    # Écriture fichiers
-    │   └── metrics_aggregator.py
-    └── interceptors/
-        └── api_key_interceptor.py
-```
+### Authentification
+- ✅ Login avec JWT
+- ✅ Validation de token
+- ✅ Session persistante
 
-#### 6.2 Fonctionnalités
-- Réception de logs via gRPC
-- Stockage dans fichiers journaliers : `{service}_{YYYY-MM-DD}.log`
-- Format JSON structuré
-- Rotation automatique des logs
+### Gestion des Rooms
+- ✅ Créer une room
+- ✅ Lister les rooms disponibles
+- ✅ Voir le nombre de membres
+- ✅ Rejoindre/Quitter une room
 
----
+### Chat Temps Réel
+- ✅ Envoi de messages instantané
+- ✅ Réception temps réel (WebSocket + gRPC streaming)
+- ✅ Broadcast à tous les membres de la room
+- ✅ Messages système (JOIN/LEAVE)
+- ✅ Historique des messages
+- ✅ Auto-scroll
+- ✅ Distinction messages propres/autres utilisateurs
 
-## 🐳 Docker & Déploiement
-
-### 7. Architecture Docker Compose
-
-```mermaid
-graph TB
-    subgraph Docker["🐳 Docker Network: grpc-network"]
-        
-        subgraph Gateway_Container["Container: flask-gateway<br/>Port: 5000"]
-            GW[Gateway Service<br/>Flask + SocketIO]
-        end
-        
-        subgraph Auth_Container["Container: flask-auth<br/>Port: 5001"]
-            AUTH[Auth Service<br/>Flask + JWT]
-        end
-        
-        subgraph Chat_Container["Container: grpc-chat<br/>Port: 50052"]
-            CHAT[Chat Service<br/>gRPC Server]
-        end
-        
-        subgraph Log_Container["Container: grpc-logging<br/>Port: 50053"]
-            LOG[Logging Service<br/>gRPC Server]
-        end
-        
-        subgraph Volumes["📁 Volumes"]
-            LogFiles[./logging-service/logs:/app/logs]
-        end
-    end
-
-    Browser[🌐 Browser<br/>localhost:5000] -->|HTTP/WS| Gateway_Container
-    
-    GW -->|HTTP REST| AUTH
-    GW -->|gRPC| CHAT
-    AUTH -->|gRPC| LOG
-    CHAT -->|gRPC| LOG
-    
-    LOG_Container -.->|mount| LogFiles
-
-    style Gateway_Container fill:#48bb78,stroke:#333,stroke-width:2px,color:#fff
-    style Auth_Container fill:#ed8936,stroke:#333,stroke-width:2px,color:#fff
-    style Chat_Container fill:#9f7aea,stroke:#333,stroke-width:2px,color:#fff
-    style Log_Container fill:#4299e1,stroke:#333,stroke-width:2px,color:#fff
-    style Volumes fill:#f6e05e,stroke:#333,stroke-width:2px,color:#000
-    style Docker fill:#e2e8f0,stroke:#333,stroke-width:3px
-```
-
-### 7.1 Docker Compose
-
-```yaml
-version: '3.8'
-
-services:
-  logging-service:
-    build: ./logging-service
-    container_name: grpc-logging
-    ports:
-      - "50053:50053"
-    environment:
-      - SERVICE_PORT=50053
-      - API_KEY=logging-service-api-key-123
-    volumes:
-      - ./logging-service/logs:/app/logs
-    networks:
-      - grpc-network
-    healthcheck:
-      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('localhost', 50053), timeout=2)"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-
-  chat-service:
-    build: ./chat-service
-    container_name: grpc-chat
-    ports:
-      - "50052:50052"
-    environment:
-      - SERVICE_PORT=50052
-      - API_KEY=chat-service-api-key-456
-      - LOGGING_SERVICE_HOST=logging-service
-      - LOGGING_SERVICE_PORT=50053
-    networks:
-      - grpc-network
-    depends_on:
-      logging-service:
-        condition: service_healthy
-
-  auth-service:
-    build: ./auth-service
-    container_name: flask-auth
-    ports:
-      - "5001:5001"
-    environment:
-      - FLASK_PORT=5001
-      - JWT_SECRET=your-super-secret-jwt-key
-      - LOGGING_SERVICE_HOST=logging-service
-    networks:
-      - grpc-network
-
-  gateway:
-    build: ./gateway-service
-    container_name: flask-gateway
-    ports:
-      - "5000:5000"
-    environment:
-      - FLASK_PORT=5000
-      - AUTH_SERVICE_URL=http://auth-service:5001
-      - CHAT_SERVICE_HOST=chat-service
-      - CHAT_SERVICE_PORT=50052
-    networks:
-      - grpc-network
-    depends_on:
-      - auth-service
-      - chat-service
-
-networks:
-  grpc-network:
-    driver: bridge
-```
-
-### 8. Dockerfiles
-
-**Exemple pour services Python** :
-```dockerfile
-FROM python:3.11-slim
-
-WORKDIR /app
-
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-COPY . .
-
-ENV PYTHONUNBUFFERED=1
-
-CMD ["python", "src/server.py"]
-```
+### Logging
+- ✅ Logs centralisés de tous les services
+- ✅ Stockage dans fichiers journaliers
+- ✅ Format JSON structuré
 
 ---
 
-## 💻 Frontend
+## ⚠️ PROBLÈMES RÉSOLUS - À CONNAÎTRE ABSOLUMENT
 
-### 9. Interface HTML/JavaScript
+### 1. ❌ PROBLÈME : `socketio.emit()` ne fonctionne pas depuis un thread
 
-**Machine à États de l'Interface** :
+**Symptôme** : Les messages sont émis côté serveur (logs visibles) mais ne sont jamais reçus par le frontend.
 
-```mermaid
-stateDiagram-v2
-    [*] --> Login: Page chargée
-    
-    Login --> Rooms: Login réussi
-    Login --> Login: Erreur credentials
-    
-    Rooms --> Chat: Sélection room
-    Rooms --> CreateRoom: Créer room
-    Rooms --> Login: Déconnexion
-    
-    CreateRoom --> Rooms: Room créée
-    
-    state Chat {
-        [*] --> Connected: Join room
-        Connected --> Typing: Saisie message
-        Typing --> Sending: Enter pressed
-        Sending --> Connected: Message envoyé
-        Connected --> Receiving: new_message event
-        Receiving --> Connected: Message affiché
-    }
-    
-    Chat --> Rooms: Leave chat
-    
-    note right of Login
-        • Input username/password
-        • Appel /auth/login
-        • Stockage JWT token
-    end note
-    
-    note right of Rooms
-        • Liste des rooms
-        • Compteur membres
-        • Bouton créer room
-    end note
-    
-    note right of Chat
-        • WebSocket actif
-        • gRPC stream actif
-        • Messages temps réel
-        • Auto-scroll
-    end note
+**Cause** : Incompatibilité entre `async_mode='eventlet'` et `threading.Thread`
+
+**✅ SOLUTION** : Utiliser `async_mode='threading'` dans Flask-SocketIO
+
+```python
+# ❌ NE FONCTIONNE PAS
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
+thread = threading.Thread(target=receive_messages, daemon=True)
+
+# ✅ SOLUTION
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
+thread = threading.Thread(target=receive_messages, daemon=True)
 ```
 
-**Fichier** : `chat-realtime.html`
+**Fichier** : `gateway-service/src/websocket_handler.py`
 
-**Fonctionnalités** :
-- Écran de login
-- Liste des rooms disponibles
-- Interface de chat avec :
-  - Zone de messages (auto-scroll)
-  - Input pour envoyer messages
-  - Affichage des messages système (JOIN/LEAVE)
-  - Distinction messages propres / autres
-  - Timestamps
+```python
+def init_socketio(app):
+    global socketio, chat_stub, metadata
+    
+    # ✅ CRUCIAL : async_mode='threading'
+    socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
+    
+    # ... reste du code
+```
 
-**WebSocket Client** :
+**Fichier** : `gateway-service/src/app.py`
+
+```python
+def run():
+    socketio.run(
+        app, 
+        host='0.0.0.0', 
+        port=config.FLASK_PORT, 
+        debug=False,  # ✅ debug=False en production
+        use_reloader=False,  # ✅ Important pour éviter double démarrage
+        allow_unsafe_werkzeug=True  # ✅ Pour développement uniquement
+    )
+```
+
+### 2. ❌ PROBLÈME : Messages dupliqués
+
+**Symptôme** : Chaque message apparaît 2 fois dans le frontend
+
+**Cause** : Double inscription à la room (REST + WebSocket)
+
+**✅ SOLUTION** : Utiliser UNIQUEMENT le WebSocket pour rejoindre
+
 ```javascript
-// Connexion
-socket = io('http://localhost:5000', {
-    reconnection: false
-});
+// ❌ NE PAS FAIRE
+await fetch(`http://localhost:5000/api/rooms/${room.id}/join`, { ... });  // REST
+socket.emit('join_chat', { ... });  // WebSocket
 
-// Events
-socket.on('connect', () => {
-    socket.emit('authenticate', { token: authToken });
+// ✅ FAIRE
+socket.emit('join_chat', {  // WebSocket UNIQUEMENT
+    room_id: room.id,
+    user: currentUser
 });
+```
 
-socket.on('new_message', (message) => {
-    displayMessage(message);
-});
+### 3. ❌ PROBLÈME : Scrollbar n'apparaît pas dans le chat
 
-// Envoyer message
-socket.emit('send_message', { content: 'Hello' });
+**Symptôme** : Impossible de scroller quand il y a beaucoup de messages
+
+**Cause** : CSS flex mal configuré, le conteneur `.messages` prend toute la hauteur nécessaire au lieu d'être limité
+
+**✅ SOLUTION** : Forcer le flex container avec `min-height: 0`
+
+```css
+/* ✅ Configuration correcte */
+#chat-screen {
+    display: flex !important;
+    flex-direction: column;
+    height: 100%;
+}
+
+.header {
+    flex-shrink: 0;  /* Ne rétrécit pas */
+}
+
+.messages {
+    flex: 1;
+    overflow-y: scroll;
+    overflow-x: hidden;
+    min-height: 0;  /* ✅ CRUCIAL pour que overflow fonctionne */
+}
+
+.input-area {
+    flex-shrink: 0;  /* Ne rétrécit pas */
+}
+```
+
+### 4. ❌ PROBLÈME : Logs Python ne s'affichent pas dans Docker
+
+**Symptôme** : `print()` ne s'affiche pas dans `docker logs`
+
+**Cause** : Output Python bufferisé par défaut
+
+**✅ SOLUTION** : Ajouter `PYTHONUNBUFFERED=1` dans Dockerfile
+
+```dockerfile
+ENV PYTHONUNBUFFERED=1
+```
+
+### 5. ❌ PROBLÈME : Stream gRPC ne se ferme pas proprement
+
+**Symptôme** : Impossible de rejoindre une room après l'avoir quittée
+
+**Cause** : Le générateur de messages ne se termine pas, le `finally` n'est jamais exécuté
+
+**✅ SOLUTION** : Envoyer un signal STOP et utiliser `return` dans le générateur
+
+```python
+STOP = object()  # Sentinel value
+
+def message_generator():
+    # Message JOIN initial
+    yield chat_pb2.ChatMessage(type=chat_pb2.JOIN, ...)
+    
+    while stream_info['running']:
+        try:
+            message = message_queue.get(timeout=0.5)
+            if message is STOP:
+                print(f"⚠️ STOP reçu, arrêt du générateur")
+                return  # ✅ Ferme le stream gRPC
+            yield message
+        except Empty:
+            continue
+
+# Quand l'utilisateur quitte
+stream_info['running'] = False
+stream_info['message_queue'].put(STOP)  # ✅ Signal d'arrêt
 ```
 
 ---
 
-## ✅ Livrables et Critères d'Évaluation
+## 📡 Flux de Données
 
-### 10. Livrables Attendus
+### Diagramme de Séquence Complet
 
-1. **Code Source Complet**
-   - Tous les services fonctionnels
-   - Fichiers proto et code généré
-   - Docker Compose configuré
+```mermaid
+sequenceDiagram
+    participant F as Frontend
+    participant G as Gateway (WebSocket)
+    participant C as Chat Service (gRPC)
+    participant R as RoomManager
 
-2. **Documentation**
-   - README.md avec instructions de déploiement
-   - Diagrammes d'architecture
-   - Documentation des APIs
-
-3. **Tests de Fonctionnement**
-   - 2 utilisateurs peuvent se connecter
-   - Créer une room
-   - Échanger des messages en temps réel
-   - Voir l'historique
-   - Quitter/rejoindre une room
-
-### 11. Critères d'Évaluation
-
-**Architecture (30%)** :
-- Séparation correcte des services
-- Communication gRPC fonctionnelle
-- Gestion propre du streaming bidirectionnel
-
-**Fonctionnalités (40%)** :
-- Authentification JWT
-- Création et gestion des rooms
-- Messages temps réel (WebSocket + gRPC streaming)
-- Historique des messages
-- Broadcast correct des messages
-
-**Code Quality (20%)** :
-- Code propre et commenté
-- Gestion d'erreurs
-- Logging approprié
-- Configuration externalisée
-
-**Déploiement (10%)** :
-- Docker Compose fonctionnel
-- Services démarrés sans erreur
-- Healthchecks configurés
-
----
-
-## 🎓 Points Techniques Importants
-
-### 12. Pièges à Éviter
-
-1. **❌ `socketio.emit()` depuis un thread ne fonctionne pas**
-   - ✅ Solution : Utiliser `socketio.start_background_task()`
-
-2. **❌ Oublier `add_stream()` avant de broadcaster**
-   - ✅ Le stream doit être enregistré dès le message JOIN
-
-3. **❌ Utiliser `threading.Thread` avec eventlet**
-   - ✅ Utiliser `eventlet.spawn()` ou `socketio.start_background_task()`
-
-4. **❌ Ne pas persister les messages avant broadcast**
-   - ✅ Sauvegarder d'abord, puis broadcaster avec l'ID
-
-5. **❌ Reconnexions WebSocket en boucle**
-   - ✅ Vérifier `socket.connected` avant de reconnecter
+    Note over F,R: 🔵 Phase 1: Connexion et Authentification
+    
+    F->>G: WebSocket Connect
+    G-->>F: connected event
+    F->>G: authenticate {token}
+    G-->>F: authenticated {user}
+    
+    Note over F,R: 🟢 Phase 2: Rejoindre Room
+    
+    F->>G: join_chat {room_id, user}
+    G->>C: gRPC JoinRoom(room_id, user)
+    C->>R: add_stream(room_id, user_id, queue)
+    C-->>G: JoinRoomResponse
+    G-->>F: joined_chat event
+    
+    Note over F,R: 🟡 Phase 3: Stream Bidirectionnel Actif
+    
+    G->>C: StreamMessages() - Streaming Start
+    Note over G,C: Connexion persistante gRPC
+    
+    Note over F,R: 📤 Phase 4: Envoi Message
+    
+    F->>G: send_message {content}
+    G->>G: message_queue.put(message)
+    G->>C: yield message via generator
+    C->>C: message_store.add_message()
+    C->>R: broadcast_to_room(room_id, message)
+    R->>R: Pour chaque stream: queue.put(message)
+    
+    Note over F,R: 📥 Phase 5: Réception Message
+    
+    R-->>C: queue.get(message)
+    C-->>G: yield message (streaming)
+    G->>F: socketio.emit('new_message', message)
+    F->>F: displayMessage(message)
+    
+    Note over F,R: 🔴 Phase 6: Quitter Room
+    
+    F->>G: leave_chat
+    G->>G: stream_info['running'] = False
+    G->>G: message_queue.put(STOP)
+    G->>C: Generator termine (return)
+    C->>R: remove_stream(room_id, user_id)
+    C-->>G: Stream closed
+    G-->>F: left_chat event
+```
 
 ---
 
-## 📚 Ressources
+## 🧪 Tests Fonctionnels
 
-- gRPC Python : https://grpc.io/docs/languages/python/
-- Flask-SocketIO : https://flask-socketio.readthedocs.io/
-- Protocol Buffers : https://developers.google.com/protocol-buffers
-- Docker Compose : https://docs.docker.com/compose/
+### Scénario 1 : Chat Multi-Utilisateurs
+
+1. **Ouvrir 2 navigateurs** (ou 2 onglets en navigation privée)
+2. **Navigateur A** : Se connecter avec `admin` / `admin123`
+3. **Navigateur B** : Se connecter avec `user1` / `password1`
+4. **Les deux** : Créer ou rejoindre la même room
+5. **Navigateur A** : Envoyer "Hello from admin"
+6. **Vérifier** : Le message apparaît instantanément dans les 2 navigateurs
+7. **Navigateur B** : Répondre "Hello from user1"
+8. **Vérifier** : Le message apparaît dans les 2 navigateurs
+
+✅ **Résultat attendu** : Messages temps réel bidirectionnels, pas de duplication
+
+### Scénario 2 : Historique
+
+1. Se connecter et rejoindre une room
+2. Envoyer plusieurs messages
+3. Quitter la room (bouton "Quitter")
+4. Rejoindre la même room
+5. **Vérifier** : Les messages précédents sont affichés (historique)
+
+### Scénario 3 : Messages Système
+
+1. **Utilisateur A** : Rejoindre une room
+2. **Vérifier** : Message système "admin a rejoint la room"
+3. **Utilisateur B** : Rejoindre la même room
+4. **Vérifier** : Les 2 utilisateurs voient "user1 a rejoint la room"
+5. **Utilisateur B** : Quitter
+6. **Vérifier** : "user1 a quitté la room"
 
 ---
 
-## 🚀 Pour Aller Plus Loin (Bonus)
+## 🔍 Débogage
 
-- Ajouter une base de données (PostgreSQL/MongoDB)
-- Implémenter la persistance des utilisateurs
-- Ajouter l'upload de fichiers/images
-- Mettre en place Redis pour le cache
-- Ajouter des notifications push
-- Implémenter le typing indicator
-- Ajouter les messages privés (DM)
+### Voir les logs en temps réel
+
+```bash
+# Tous les services
+docker-compose logs -f
+
+# Service spécifique
+docker-compose logs -f gateway
+docker-compose logs -f chat-service
+
+# Logs du chat service (gRPC)
+docker logs -f grpc-chat
+
+# Logs de logging centralisés
+cat logging-service/logs/chat-service_2026-01-04.log
+```
+
+### Vérifier la santé des services
+
+```bash
+# Gateway
+curl http://localhost:5000/health
+
+# Auth
+curl http://localhost:5001/health
+```
+
+### Redémarrer un service
+
+```bash
+docker-compose restart gateway
+docker-compose restart chat-service
+```
+
+### Nettoyer et reconstruire
+
+```bash
+docker-compose down
+docker-compose up --build
+```
 
 ---
 
-**Durée estimée** : 20-30 heures
-**Niveau** : Intermédiaire à Avancé
-**Prérequis** : Python, bases de gRPC, Docker, JavaScript
+## 📚 Génération des Fichiers Proto
+
+### Installation de grpcio-tools
+
+```bash
+pip install grpcio-tools
+```
+
+### Générer pour chaque service
+
+```bash
+# Depuis le dossier racine
+cd proto
+
+# Pour gateway-service
+python -m grpc_tools.protoc -I. --python_out=../gateway-service/proto --grpc_python_out=../gateway-service/proto common.proto auth.proto chat.proto
+
+# Pour chat-service
+python -m grpc_tools.protoc -I. --python_out=../chat-service/proto --grpc_python_out=../chat-service/proto common.proto chat.proto logging.proto
+
+# Pour auth-service
+python -m grpc_tools.protoc -I. --python_out=../auth-service/proto --grpc_python_out=../auth-service/proto common.proto auth.proto logging.proto
+
+# Pour logging-service
+python -m grpc_tools.protoc -I. --python_out=../logging-service/proto --grpc_python_out=../logging-service/proto common.proto logging.proto
+```
+
+---
+
+## 🎓 Points Techniques Clés
+
+### 1. RoomManager - Broadcast Pattern
+
+Le `RoomManager` est au cœur du système de broadcast. Il maintient une map de toutes les connexions actives :
+
+```python
+class RoomManager:
+    def __init__(self):
+        # {room_id: {user_id: queue}}
+        self.active_streams = {}
+    
+    def add_stream(self, room_id, user_id, message_queue):
+        """Enregistrer un stream pour broadcast"""
+        if room_id not in self.active_streams:
+            self.active_streams[room_id] = {}
+        self.active_streams[room_id][user_id] = message_queue
+    
+    def broadcast_to_room(self, room_id, message):
+        """Envoyer à TOUS les streams de la room"""
+        if room_id not in self.active_streams:
+            return
+        
+        for user_id, queue in self.active_streams[room_id].items():
+            queue.put(message)
+```
+
+### 2. Streaming Bidirectionnel gRPC
+
+```python
+def StreamMessages(self, request_iterator, context):
+    """
+    request_iterator : messages du client vers serveur
+    yield : messages du serveur vers client
+    """
+    message_queue = queue.Queue()
+    
+    # Thread pour lire les messages clients
+    def read_client_messages():
+        for msg in request_iterator:
+            if msg.type == JOIN:
+                # Enregistrer le stream
+                self.room_manager.add_stream(
+                    msg.room_id, 
+                    msg.user_id, 
+                    message_queue
+                )
+            elif msg.type == TEXT:
+                # Sauvegarder et broadcaster
+                self.message_store.add_message(msg)
+                self.room_manager.broadcast_to_room(msg.room_id, msg)
+    
+    # Thread pour envoyer les messages au client
+    while True:
+        msg = message_queue.get()
+        yield msg
+```
+
+### 3. WebSocket Handler avec Threading
+
+```python
+def start_grpc_stream(session_id, room_id, user_info):
+    message_queue = Queue()
+    
+    def message_generator():
+        # Message JOIN
+        yield ChatMessage(type=JOIN, ...)
+        
+        # Messages de l'utilisateur
+        while stream_info['running']:
+            msg = message_queue.get(timeout=0.5)
+            if msg is STOP:
+                return
+            yield msg
+    
+    def receive_messages():
+        # Recevoir du serveur gRPC
+        for message in chat_stub.StreamMessages(message_generator()):
+            # ✅ Émettre via SocketIO (fonctionne avec threading mode)
+            socketio.emit('new_message', message_data, room=room_id)
+    
+    # ✅ Threading standard (car async_mode='threading')
+    thread = threading.Thread(target=receive_messages, daemon=True)
+    thread.start()
+```
+
+---
+
+## 🚀 Améliorations Possibles
+
+### Court Terme
+- [ ] Ajouter une base de données (PostgreSQL)
+- [ ] Persister les utilisateurs et rooms
+- [ ] Ajouter la validation des inputs
+- [ ] Améliorer la gestion d'erreurs
+
+### Moyen Terme
+- [ ] Upload de fichiers/images
+- [ ] Messages privés (DM)
+- [ ] Notifications push
+- [ ] Typing indicator
+- [ ] Read receipts
+
+### Long Terme
+- [ ] Système de permissions (admin/user)
+- [ ] Modération de contenu
+- [ ] Recherche dans l'historique
+- [ ] Export de conversations
+- [ ] Analytics et métriques
+
+---
+
+## 📖 Ressources
+
+- [gRPC Python Documentation](https://grpc.io/docs/languages/python/)
+- [Flask-SocketIO Documentation](https://flask-socketio.readthedocs.io/)
+- [Protocol Buffers Guide](https://developers.google.com/protocol-buffers)
+- [Docker Compose Documentation](https://docs.docker.com/compose/)
+
+---
+
+## 🤝 Contribution
+
+Pour contribuer :
+1. Fork le projet
+2. Créer une branche (`git checkout -b feature/AmazingFeature`)
+3. Commit (`git commit -m 'Add AmazingFeature'`)
+4. Push (`git push origin feature/AmazingFeature`)
+5. Ouvrir une Pull Request
+
+---
+
+## 📝 Licence
+
+Ce projet est à usage éducatif uniquement.
+
+---
+
+## 👨‍💻 Auteur
+
+Créé dans le cadre du TP sur Protocol Buffers et Architecture Microservices
+
+---
+
+**⚡ Bon développement !**
