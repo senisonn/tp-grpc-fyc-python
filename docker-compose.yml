@@ -14,6 +14,7 @@ services:
       - "50053:50053"
     volumes:
       - ./logging-service/logs:/app/logs
+      - ./logging-service:/app  # ✅ AJOUT : Code source
     networks:
       - grpc-network
     restart: unless-stopped
@@ -42,6 +43,8 @@ services:
       - LOG_LEVEL=INFO
     ports:
       - "50052:50052"
+    volumes:
+      - ./chat-service:/app  # ✅ AJOUT : Code source
     networks:
       - grpc-network
     depends_on:
@@ -72,6 +75,8 @@ services:
       - FLASK_ENV=development
     ports:
       - "5001:5001"
+    volumes:
+      - ./auth-service:/app  # ✅ AJOUT : Code source
     networks:
       - grpc-network
     restart: unless-stopped
@@ -99,6 +104,8 @@ services:
       - FLASK_ENV=development
     ports:
       - "5000:5000"
+    volumes:
+      - ./gateway-service:/app  # ✅ AJOUT : Code source
     networks:
       - grpc-network
     depends_on:

@@ -76,3 +76,23 @@ class ChatClient:
             'success': response.success,
             'message': response.message
         }
+    
+    def get_room_history(self, room_id: str, limit: int = 50):
+        request = chat_pb2.RoomHistoryRequest(
+            room_id=room_id,
+            limit=limit
+        )
+        
+        messages = []
+        for message in self.stub.GetRoomHistory(request, metadata=self.metadata):
+            messages.append({
+                'id': message.id,
+                'room_id': message.room_id,
+                'user_id': message.user_id,
+                'username': message.username,
+                'content': message.content,
+                'timestamp': message.timestamp,
+                'type': ['TEXT', 'SYSTEM', 'JOIN', 'LEAVE'][message.type]
+            })
+        
+        return messages

@@ -15,7 +15,10 @@ class AuthClient:
             )
             
             if response.status_code == 200:
-                return response.json()
-            return {'valid': False, 'error': 'Invalid token'}
+                return response.json()  
+            else:
+                return {'valid': False, 'error': 'Invalid token'}
+        
         except Exception as e:
+            print(f"❌ Erreur validation token: {str(e)}")
             return {'valid': False, 'error': str(e)}

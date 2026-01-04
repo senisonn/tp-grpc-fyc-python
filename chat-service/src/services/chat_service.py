@@ -1,3 +1,4 @@
+import time
 import grpc
 import proto.chat_pb2 as chat_pb2
 import proto.chat_pb2_grpc as chat_pb2_grpc
@@ -203,107 +204,65 @@ class ChatServiceServicer(chat_pb2_grpc.ChatServiceServicer):
             context.abort(grpc.StatusCode.INTERNAL, str(e))
     
     def StreamMessages(self, request_iterator, context):
-        """
-        Streaming bidirectionnel pour le chat temps réel
-        """
         message_queue = queue.Queue()
         room_id = None
         user_id = None
-        
-        def receive_messages():
-            """Thread pour recevoir les messages du client"""
-            nonlocal room_id, user_id
-            
+        username = None
+        stop_event = threading.Event()
+
+        def read_client():
+            nonlocal room_id, user_id, username
             try:
-                for message in request_iterator:
-                    room_id = message.room_id
-                    user_id = message.user_id
-                    
-                    # Vérifier que l'utilisateur est membre de la room
-                    room = self.room_store.get_room(room_id)
-                    if not room or not room.has_member(user_id):
-                        self.logger.warning(
-                            f"Tentative d'envoi message sans être membre",
-                            room_id=room_id,
-                            user_id=user_id
-                        )
-                        continue
-                    
-                    # Vérifier la longueur du message
-                    if len(message.content) > config.MAX_MESSAGE_LENGTH:
-                        self.logger.warning(
-                            f"Message trop long",
+                for msg in request_iterator:
+                    if msg.type == chat_pb2.MessageType.JOIN:
+                        room_id = msg.room_id
+                        user_id = msg.user_id
+                        username = msg.username
+
+                        self.room_manager.add_stream(room_id, user_id, message_queue)
+
+                        self.logger.info("Stream ouvert", room_id=room_id, user_id=user_id)
+
+                    elif msg.type == chat_pb2.MessageType.TEXT:
+                        stored = self.message_store.add_message(
                             room_id=room_id,
                             user_id=user_id,
-                            length=len(message.content)
+                            username=username,
+                            content=msg.content,
+                            message_type=0
                         )
-                        continue
-                    
-                    # Stocker le message
-                    stored_msg = self.message_store.add_message(
-                        room_id=room_id,
-                        user_id=user_id,
-                        username=message.username,
-                        content=message.content,
-                        message_type=0  # TEXT
-                    )
-                    
-                    # Créer le message gRPC
-                    chat_msg = chat_pb2.ChatMessage(
-                        id=stored_msg.id,
-                        room_id=stored_msg.room_id,
-                        user_id=stored_msg.user_id,
-                        username=stored_msg.username,
-                        content=stored_msg.content,
-                        timestamp=stored_msg.timestamp,
-                        type=chat_pb2.MessageType.TEXT
-                    )
-                    
-                    # Broadcast à tous les membres de la room
-                    self.room_manager.broadcast_to_room(room_id, chat_msg)
-                    
-                    # Logger
-                    self.logger.info(
-                        f"Message envoyé dans {room.name}",
-                        room_id=room_id,
-                        user_id=user_id,
-                        username=message.username
-                    )
-            
-            except Exception as e:
-                self.logger.error(f"Erreur réception messages: {str(e)}")
-        
-        # Démarrer le thread de réception
-        receive_thread = threading.Thread(target=receive_messages, daemon=True)
-        receive_thread.start()
-        
-        # Attendre d'avoir le room_id et user_id
-        import time
-        for _ in range(50):  # Attendre max 5 secondes
-            if room_id and user_id:
-                break
-            time.sleep(0.1)
-        
-        if room_id and user_id:
-            # Enregistrer le stream
-            self.room_manager.add_stream(room_id, user_id, message_queue)
-            
-            try:
-                # Envoyer les messages de la queue
-                while context.is_active():
-                    try:
-                        message = message_queue.get(timeout=1.0)
-                        yield message
-                    except queue.Empty:
-                        continue
+
+                        out = chat_pb2.ChatMessage(
+                            id=stored.id,
+                            room_id=room_id,
+                            user_id=user_id,
+                            username=username,
+                            content=stored.content,
+                            timestamp=stored.timestamp,
+                            type=chat_pb2.MessageType.TEXT
+                        )
+
+                        self.room_manager.broadcast_to_room(room_id, out)
+
+            except grpc.RpcError:
+                pass
             finally:
-                # Nettoyer à la déconnexion
+                stop_event.set()
+
+        threading.Thread(target=read_client, daemon=True).start()
+
+        try:
+            while context.is_active() and not stop_event.is_set():
+                try:
+                    msg = message_queue.get(timeout=1)
+                    yield msg
+                except queue.Empty:
+                    continue
+        finally:
+            if room_id and user_id:
                 self.room_manager.remove_stream(room_id, user_id)
-                self.logger.info(
-                    f"Stream fermé",
-                    room_id=room_id,
-                    user_id=user_id
-                )
+                self.logger.info("Stream fermé", room_id=room_id, user_id=user_id)
+
     
     def GetRoomHistory(self, request, context):
         """Récupérer l'historique d'une room (streaming serveur)"""
