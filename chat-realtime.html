@@ -28,15 +28,20 @@
             overflow: hidden;
         }
         
-        /* ✅ FIX: Force #chat-screen à être un flex container */
+        /* ✅ FIX: Retirer le !important qui causait le conflit */
         #chat-screen {
-            display: flex !important;
+            display: flex;
             flex-direction: column;
             height: 100%;
         }
         
+        /* ✅ FIX: .hidden doit être plus spécifique */
+        #chat-screen.hidden {
+            display: none !important;
+        }
+        
         .header {
-            flex-shrink: 0;  /* ✅ Empêche le header de rétrécir */
+            flex-shrink: 0;
             background: #667eea;
             color: white;
             padding: 20px;
@@ -45,14 +50,13 @@
         .header h1 { margin-bottom: 5px; font-size: 24px; }
         .status { font-size: 14px; opacity: 0.9; }
         
-        /* ✅ FIX: Messages avec overflow qui fonctionne */
         .messages {
             flex: 1;
             overflow-y: scroll;
             overflow-x: hidden;
             padding: 20px;
             background: #f8f9fa;
-            min-height: 0;  /* ✅ CRUCIAL pour que flex fonctionne avec overflow */
+            min-height: 0;
         }
         
         .message {
@@ -74,9 +78,8 @@
         .message-time { color: #999; }
         .message-content { color: #333; word-wrap: break-word; }
         
-        /* ✅ FIX: Input area ne rétrécit pas */
         .input-area { 
-            flex-shrink: 0;  /* ✅ Empêche l'input de rétrécir */
+            flex-shrink: 0;
             padding: 20px; 
             background: white; 
             border-top: 1px solid #e0e0e0; 
@@ -120,6 +123,7 @@
     </style>
 </head>
 <body>
+    <!-- Le reste du HTML reste identique -->
     <div class="container">
         <!-- Login -->
         <div id="login-screen" class="login-screen">
@@ -159,12 +163,12 @@
     </div>
 
     <script>
+        // Le JavaScript reste identique
         let socket;
         let authToken;
         let currentUser;
         let currentRoom;
 
-        // Login
         async function login() {
             const username = document.getElementById('username').value;
             const password = document.getElementById('password').value;
@@ -191,7 +195,6 @@
             }
         }
 
-        // WebSocket
         function connectWebSocket() {
             if (socket && socket.connected) {
                 console.log('⚠️ Socket déjà connecté, pas de reconnexion');
@@ -217,7 +220,6 @@
                 console.log('✅ Authentifié:', data.user);
             });
 
-            // ✅ FIX: Retirer les anciens listeners avant d'ajouter les nouveaux
             socket.off('new_message');
             socket.on('new_message', (message) => {
                 console.log('🔔 new_message reçu:', message);
@@ -235,7 +237,6 @@
             });
         }
 
-        // Rooms
         async function showRoomScreen() {
             document.getElementById('login-screen').classList.add('hidden');
             document.getElementById('room-screen').classList.remove('hidden');
@@ -294,20 +295,16 @@
             }
         }
 
-        // Join Room
         async function joinRoom(room) {
             currentRoom = room;
             
-            // Charger historique
             await loadHistory(room.id);
             
-            // JOIN via WebSocket (streaming)
             socket.emit('join_chat', {
                 room_id: room.id,
                 user: currentUser
             });
             
-            // Afficher chat
             document.getElementById('room-screen').classList.add('hidden');
             document.getElementById('chat-screen').classList.remove('hidden');
             document.getElementById('room-name').textContent = '💬 ' + room.name;
@@ -315,7 +312,6 @@
             document.getElementById('message-input').focus();
         }
 
-        // History
         async function loadHistory(roomId) {
             try {
                 const response = await fetch(`http://localhost:5000/api/rooms/${roomId}/history?limit=50`, {
@@ -327,7 +323,6 @@
                 
                 data.messages.forEach(msg => displayMessage(msg, true));
                 
-                // Scroll
                 setTimeout(() => {
                     const messagesDiv = document.getElementById('messages');
                     messagesDiv.scrollTop = messagesDiv.scrollHeight;
@@ -337,7 +332,6 @@
             }
         }
 
-        // Send Message
         function sendMessage() {
             const input = document.getElementById('message-input');
             const content = input.value.trim();
@@ -349,7 +343,6 @@
             input.value = '';
         }
         
-        // Display Message
         function displayMessage(message, isHistory = false) {
             const messagesDiv = document.getElementById('messages');
             const messageDiv = document.createElement('div');
@@ -385,7 +378,6 @@
             }
         }
 
-        // Leave Chat
         function leaveChat() {
             socket.emit('leave_chat');
             
@@ -396,7 +388,6 @@
             loadRooms();
         }
 
-        // Logout
         function logout() {
             if (socket) socket.disconnect();
             authToken = null;
@@ -406,7 +397,6 @@
             document.getElementById('login-screen').classList.remove('hidden');
         }
 
-        // Update Status
         function updateStatus(text, color) {
             const status = document.getElementById('status');
             status.textContent = text;
